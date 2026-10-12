@@ -2,7 +2,7 @@
 
 ## graphify
 
-This project has a knowledge graph at `graphify-out/` (not tracked in git; CI can store it as an OCI artifact — see the graphify step in `cloudbuild.yaml`).
+This project has a knowledge graph at `graphify-out/` (not tracked in git; build it locally with `graphify extract .`).
 
 **Before exploring code, use graphify first:**
 ```bash

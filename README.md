@@ -31,5 +31,25 @@ see `src/lib/config.ts`:
 | `NEXT_PUBLIC_SHEETS_COMPUTE_WRITES_ENABLED` | Offer generated-code sheet write bindings |
 | `NEXT_PUBLIC_SHOW_RAW_JSON` | Show the raw JSON inspector in run details |
 
-`cloudbuild.yaml` is an example pipeline deploying the static export to a GCS
-bucket behind a CDN; set its substitutions on your own trigger.
+## Releases and deployment
+
+Every push to `main` runs CI (typecheck, tests, build), tags `v<VERSION>`,
+publishes a GitHub Release with `carrier-bridge-v<VERSION>.tar.gz` (the static
+export), and bumps the patch version.
+
+The build is environment-agnostic. To deploy, unpack the tarball onto any
+static host (bucket + CDN, nginx, ...) and overwrite `config.js` with your
+settings:
+
+```js
+window.runtimeConfig = {
+  BACKEND_URL: "https://carrier.example.com",
+  NEXT_PUBLIC_AUTH_ENABLED: true,
+  NEXT_PUBLIC_ZITADEL_ISSUER: "https://auth.example.com",
+  NEXT_PUBLIC_ZITADEL_CLIENT_ID: "<client id>",
+};
+```
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
