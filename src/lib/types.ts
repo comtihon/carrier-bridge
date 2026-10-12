@@ -447,7 +447,26 @@ export interface RejectRequest {
 
 // ─── Workflow Definitions (static, from backend /workflows/*.json) ────────────
 
-export interface WorkflowDefinition {
+// ─── Ownership & visibility ──────────────────────────────────────────────────
+
+export type Visibility = "public" | "private";
+
+/**
+ * Who a user-created resource belongs to and who else may see it.
+ *
+ * All optional: a backend without per-user visibility sends none of these, and
+ * the UI then behaves as it always did — everything shared, everything editable.
+ * `can_edit` is the backend's verdict for the caller (owner or admin), so the UI
+ * never compares subjects itself.
+ */
+export interface Ownership {
+  visibility?: Visibility;
+  owner_id?: string | null;
+  owner_name?: string | null;
+  can_edit?: boolean;
+}
+
+export interface WorkflowDefinition extends Ownership {
   id: string;
   name: string;
   description: string;
@@ -732,7 +751,7 @@ export interface EditableWorkflowDefinition {
 }
 
 /** Full workflow definition as returned by GET /workflows/{id}. */
-export interface ApiWorkflowDefinition {
+export interface ApiWorkflowDefinition extends Ownership {
   id: string;
   name: string;
   description: string;

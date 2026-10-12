@@ -41,6 +41,7 @@ import { DatasourceRiskBadge } from "./DatasourceRiskBadge";
 import { EventModal, EventNameConflictDialog, parseEventSchema } from "./EventModal";
 import { CodeEditor } from "./CodeEditor";
 import { ResourceEditorFrame, type EditorSurface } from "./ResourceEditorFrame";
+import { AccessSection, PrivateBadge, canEdit, useVisibilityDraft } from "./Visibility";
 import { TYPE_ICONS as SHARED_TYPE_ICONS } from "./workflow-canvas/utils/typeIcons";
 import { WorkflowStepNode, SharedParallelNode, SharedSwitchNode, SharedJoinNode } from "./workflow-canvas/nodes";
 import { PvcAddonNode } from "./workflow-canvas/nodes/PvcAddonNode";
@@ -1424,7 +1425,7 @@ export function DatasourceAddonPanel({
           </option>
           {selectable.map((ds) => (
             <option key={ds.id} value={ds.id}>
-              {ds.name || ds.id} ({(ds.operations ?? []).length})
+              {ds.name || ds.id} ({(ds.operations ?? []).length}){ds.visibility === "private" ? " · private" : ""}
             </option>
           ))}
         </select>
@@ -3464,6 +3465,8 @@ interface AgentModalProps {
 
 export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentModalProps) {
   const isEdit = agent !== null;
+  const access = useVisibilityDraft(agent, !isEdit);
+  const readOnly = isEdit && !canEdit(agent);
   const [id, setId]                         = useState(agent?.id ?? "");
   const [name, setName]                     = useState(agent?.name ?? "");
   const [description, setDescription]       = useState(agent?.description ?? "");
@@ -3536,6 +3539,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
         helm_values: defaultRuntime === "k8s" ? helmValuesParsed : {},
         protocol,
         acp_agent: protocol === "acp" ? (acpAgent.trim() || null) : null,
+        ...access.payload,
       };
       onSave(isEdit
         ? await updateAgent(agent.id, payload)
@@ -3557,7 +3561,9 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
       onClose={onClose}
       initialWidth={512}
       minWidth={380}
+      readOnly={readOnly}
     >
+      <AccessSection resource={agent} isNew={!isEdit} draft={access} kind="agent" />
       {!isEdit && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-400">ID <span className="text-red-400">*</span></label>
@@ -3721,7 +3727,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
       {error && (
         <p className="text-xs text-red-400 bg-red-950/30 border border-red-800 rounded-lg px-3 py-2">{error}</p>
       )}
-      <div className="flex gap-2 pt-1">
+      {!readOnly && <div className="flex gap-2 pt-1">
         <button type="button" onClick={onClose}
           className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 text-sm font-medium transition-colors">
           Cancel
@@ -3730,7 +3736,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold transition-colors disabled:opacity-50">
           {saving ? "Saving…" : isEdit ? "Save Changes" : "Create Agent"}
         </button>
-      </div>
+      </div>}
     </ResourceEditorFrame>
   );
 }
@@ -4006,6 +4012,8 @@ interface DatasourceModalProps {
 
 export function DatasourceModal({ datasource, onSave, onClose, surface = "modal" }: DatasourceModalProps) {
   const isEdit = datasource !== null;
+  const access = useVisibilityDraft(datasource, !isEdit);
+  const readOnly = isEdit && !canEdit(datasource);
   const [id, setId]                   = useState(datasource?.id ?? "");
   const [name, setName]               = useState(datasource?.name ?? "");
   const [description, setDescription] = useState(datasource?.description ?? "");
@@ -4354,7 +4362,11 @@ export function DatasourceModal({ datasource, onSave, onClose, surface = "modal"
   // Operations are folded by default — a source with 30 discovered operations
   // is unreadable otherwise. Only the ones explicitly opened (or just added by
   // hand) are expanded; indices shift with the list on removal.
-  const [openOps, setOpenOps] = useState<Set<number>>(new Set());
+  // Read-only has no way to unfold an operation (the toggles are disabled with
+  // the rest of the form), so it opens with every operation shown.
+  const [openOps, setOpenOps] = useState<Set<number>>(
+    () => new Set(readOnly ? (datasource?.operations ?? []).map((_, i) => i) : []),
+  );
   const toggleOp = (idx: number) =>
     setOpenOps((prev) => {
       const next = new Set(prev);
@@ -4513,6 +4525,7 @@ export function DatasourceModal({ datasource, onSave, onClose, surface = "modal"
         kind,
         base_url: baseUrl.trim(),
         operations,
+        ...access.payload,
       };
       onSave(isEdit
         ? await updateDatasource(datasource.id, authUntouched ? payload : { ...payload, auth })
@@ -4538,7 +4551,9 @@ export function DatasourceModal({ datasource, onSave, onClose, surface = "modal"
       onClose={onClose}
       initialWidth={640}
       minWidth={420}
+      readOnly={readOnly}
     >
+      <AccessSection resource={datasource} isNew={!isEdit} draft={access} kind="datasource" />
       {!isEdit && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-400">ID <span className="text-red-400">*</span></label>
@@ -5155,7 +5170,7 @@ export function DatasourceModal({ datasource, onSave, onClose, surface = "modal"
       {error && (
         <p className="text-xs text-red-400 bg-red-950/30 border border-red-800 rounded-lg px-3 py-2">{error}</p>
       )}
-      <div className="flex gap-2 pt-1">
+      {!readOnly && <div className="flex gap-2 pt-1">
         <button type="button" onClick={onClose}
           className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 text-sm font-medium transition-colors">
           Cancel
@@ -5165,7 +5180,7 @@ export function DatasourceModal({ datasource, onSave, onClose, surface = "modal"
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold transition-colors disabled:opacity-50">
           {saving ? "Saving…" : isEdit ? "Save Changes" : "Create Datasource"}
         </button>
-      </div>
+      </div>}
     </ResourceEditorFrame>
   );
 }
@@ -5389,7 +5404,10 @@ function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddo
                         className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 group">
                         <Database className="w-3 h-3 text-cyan-400 shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-slate-200 truncate">{ds.name || ds.id}</p>
+                          <div className="flex items-center gap-1 min-w-0">
+                            <p className="text-xs font-medium text-slate-200 truncate">{ds.name || ds.id}</p>
+                            <PrivateBadge resource={ds} />
+                          </div>
                           <p className="text-[10px] text-slate-500 truncate">
                             {ds.base_url || ds.kind}
                           </p>
@@ -5410,11 +5428,13 @@ function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddo
                           title="Edit datasource">
                           <Pencil className="w-3 h-3" />
                         </button>
-                        <button onClick={() => handleDeleteDatasource(ds.id, ds.name || ds.id)}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-800 text-slate-400 hover:text-red-300 transition-all shrink-0"
-                          title="Delete datasource">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        {canEdit(ds) && (
+                          <button onClick={() => handleDeleteDatasource(ds.id, ds.name || ds.id)}
+                            className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-800 text-slate-400 hover:text-red-300 transition-all shrink-0"
+                            title="Delete datasource">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -5496,7 +5516,10 @@ function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddo
                       className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 group">
                       <Bot className="w-3 h-3 text-violet-400 shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-slate-200 truncate">{a.name || a.id}</p>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <p className="text-xs font-medium text-slate-200 truncate">{a.name || a.id}</p>
+                          <PrivateBadge resource={a} />
+                        </div>
                         <p className="text-[10px] text-slate-500 truncate">{a.default_runtime}</p>
                       </div>
                       <button onClick={() => onAddAgent(a)}
@@ -5509,11 +5532,13 @@ function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddo
                         title="Edit agent">
                         <Pencil className="w-3 h-3" />
                       </button>
-                      <button onClick={() => handleDeleteAgent(a.id, a.name || a.id)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-800 text-slate-400 hover:text-red-300 transition-all shrink-0"
-                        title="Delete agent">
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      {canEdit(a) && (
+                        <button onClick={() => handleDeleteAgent(a.id, a.name || a.id)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-800 text-slate-400 hover:text-red-300 transition-all shrink-0"
+                          title="Delete agent">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

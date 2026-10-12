@@ -95,7 +95,7 @@ export function SubmitWorkflowModal({ onSubmit, onClose }: Props) {
                 >
                   {workflows.map((w) => (
                     <option key={w.id} value={w.id}>
-                      {w.name}
+                      {w.name}{w.visibility === "private" ? " · private" : ""}
                     </option>
                   ))}
                 </select>

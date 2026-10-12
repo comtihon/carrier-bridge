@@ -40,6 +40,7 @@ import { newDynamicWorkflow } from "./dynamic/dynamicWorkflow";
 import { SubmitWorkflowModal } from "./SubmitWorkflowModal";
 import { ChatPanel } from "./ChatPanel";
 import { ScriptEditor, type ScriptDraft } from "./ScriptEditor";
+import { AccessSection, PrivateBadge, useVisibilityDraft } from "./Visibility";
 import { EventEditor, emptyEventDraft, eventToDraft, type EventDraft } from "./EventEditor";
 import { DockRail, PanelShell, PANEL_ORDER, type PanelId } from "./panels/dock";
 import { AgentsPanel } from "./panels/AgentsPanel";
@@ -72,10 +73,15 @@ import { effectiveStatus } from "@/lib/types";
 import { BACKEND_URL } from "@/lib/config";
 import type {
   ApprovalCaseSummary, WorkflowRun, EditableWorkflowDefinition, WorkflowDefinition,
-  EditableNodeConfig,
+  EditableNodeConfig, Ownership, Visibility,
 } from "@/lib/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** The ownership fields of a resource, and nothing else. */
+function ownershipOf(r: Ownership): Ownership {
+  return { visibility: r.visibility, owner_id: r.owner_id, owner_name: r.owner_name, can_edit: r.can_edit };
+}
 
 /** Convert a raw API workflow definition to the editable format. */
 function toEditable(def: {
@@ -306,6 +312,10 @@ export function Dashboard() {
   const [editorLoading, setEditorLoading]     = useState(false);
   const [saving, setSaving]           = useState(false);
   const [saveError, setSaveError]     = useState<string | null>(null);
+  // Owner and visibility of the open workflow. Kept beside it rather than in
+  // it: the editor owns the definition, and visibility is not part of the graph.
+  const [wfOwnership, setWfOwnership] = useState<Ownership | null>(null);
+  const wfAccess = useVisibilityDraft(wfOwnership, !!editingWorkflow?.isNew);
 
   // ── Script library state ──────────────────────────────────────────────────
   const [scriptDraft, setScriptDraft] = useState<ScriptDraft | null>(null);
@@ -480,22 +490,25 @@ export function Dashboard() {
         description: full.description,
         // Prefer the list's readonly over the GET response — the registry
         // is the source of truth, the file backend can stamp readonly=true
-        // on everything in some configurations.
-        readonly: listItem?.readonly ?? full.readonly,
+        // on everything in some configurations. Someone else's workflow is
+        // read-only too: the backend would refuse the save.
+        readonly: (listItem?.readonly ?? full.readonly) || full.can_edit === false,
         steps: full.steps as Array<Record<string, unknown>>,
         ui: full.ui,
         use_meta_llm: full.use_meta_llm,
         use_storage: full.use_storage,
       }));
+      setWfOwnership(ownershipOf(full));
     } catch {
       if (listItem) {
         setEditingWorkflow(toEditable({
           id: listItem.id,
           name: listItem.name,
           description: listItem.description,
-          readonly: listItem.readonly,
+          readonly: listItem.readonly || listItem.can_edit === false,
           steps: listItem.steps as unknown as Array<Record<string, unknown>>,
         }));
+        setWfOwnership(ownershipOf(listItem));
       }
     } finally {
       setEditorLoading(false);
@@ -507,6 +520,7 @@ export function Dashboard() {
     const id = `workflow-${Date.now()}`;
     newIdsRef.current.add(id);
     setEditingWorkflow({ id, name: "New Workflow", description: "", nodes: [], edges: [], isNew: true });
+    setWfOwnership(null);
     setSaveError(null);
     setCenter("workflow");
     openPanel("workflows");
@@ -517,6 +531,7 @@ export function Dashboard() {
     const id = `workflow-${Date.now()}`;
     newIdsRef.current.add(id);
     setEditingWorkflow(newDynamicWorkflow(id));
+    setWfOwnership(null);
     setSaveError(null);
     setCenter("workflow");
     openPanel("workflows");
@@ -529,7 +544,7 @@ export function Dashboard() {
     try {
       const payload = editableToApiPayload(updated);
       if (updated.isNew) {
-        await createWorkflowDefinition(payload);
+        setWfOwnership(ownershipOf(await createWorkflowDefinition({ ...payload, ...wfAccess.payload })));
         newIdsRef.current.delete(updated.id);
         // Reload list — the new workflow should now appear
         await loadWorkflowList();
@@ -539,19 +554,22 @@ export function Dashboard() {
         // replaces the whole definition, so a field left out here is a feature
         // silently switched off. `use_storage` was missing, which is why the
         // storage checkbox never appeared to stick.
-        await updateWorkflowDefinition(updated.id, {
+        const saved = await updateWorkflowDefinition(updated.id, {
           name:         payload.name,
           description:  payload.description,
           steps:        payload.steps,
           ui:           payload.ui,
           use_meta_llm: payload.use_meta_llm,
           use_storage:  payload.use_storage,
+          ...wfAccess.payload,
         });
-        // Refresh list name/description
+        const stored = ownershipOf(saved);
+        setWfOwnership(stored);
+        // Refresh list name/description (and the private badge)
         setWfList((prev) =>
           prev.map((w) =>
             w.id === updated.id
-              ? { ...w, name: updated.name, description: updated.description ?? "" }
+              ? { ...w, name: updated.name, description: updated.description ?? "", ...stored }
               : w,
           ),
         );
@@ -562,7 +580,7 @@ export function Dashboard() {
     } finally {
       setSaving(false);
     }
-  }, [loadWorkflowList]);
+  }, [loadWorkflowList, wfAccess.payload]);
 
   // ── Enable / disable workflow ─────────────────────────────────────────────
   // The card flips immediately and rolls back if the PUT fails, matching how the
@@ -610,6 +628,7 @@ export function Dashboard() {
         name: script.name,
         description: script.description ?? "",
         code: script.code,
+        ...ownershipOf(script),
       }),
     );
   }, [openResource]);
@@ -624,7 +643,8 @@ export function Dashboard() {
 
   const handleScriptSaved = useCallback((script: ScriptDefinition) => {
     // A brand-new script gains an id — keep editing the same document.
-    setScriptDraft((prev) => (prev ? { ...prev, id: script.id, name: script.name } : prev));
+    // Ownership too: a new script comes back with its owner and visibility.
+    setScriptDraft((prev) => (prev ? { ...prev, id: script.id, name: script.name, ...ownershipOf(script) } : prev));
     setLibraryToken((t) => t + 1);
   }, []);
 
@@ -861,15 +881,24 @@ export function Dashboard() {
         );
       }
       return editingWorkflow ? (
-        <WorkflowEditor
-          key={editingWorkflow.id}
-          workflow={editingWorkflow}
-          onSave={handleSaveWorkflow}
-          onCancel={() => { setEditingWorkflow(null); setCenter(null); }}
-          saving={saving}
-          saveError={saveError}
-          readonly={editingWorkflow.readonly}
-        />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {wfAccess.supported && (
+            <div className="px-4 py-2 border-b border-slate-800 bg-slate-900/40 shrink-0">
+              <AccessSection resource={wfOwnership} isNew={!!editingWorkflow.isNew} draft={wfAccess} kind="workflow" />
+            </div>
+          )}
+          <div className="flex-1 min-h-0 flex flex-col">
+            <WorkflowEditor
+              key={editingWorkflow.id}
+              workflow={editingWorkflow}
+              onSave={handleSaveWorkflow}
+              onCancel={() => { setEditingWorkflow(null); setCenter(null); }}
+              saving={saving}
+              saveError={saveError}
+              readonly={editingWorkflow.readonly}
+            />
+          </div>
+        </div>
       ) : (
         <EmptyWorkflows onNew={handleNewWorkflow} />
       );
@@ -974,6 +1003,8 @@ export function WorkflowDefinitionCard({ workflow, selected, loading, hidden, di
   onEdit: () => void; onDelete: () => void; onToggleHidden: () => void; onToggleEnabled: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  // Someone else's workflow behaves like a read-only one: no edit, no delete.
+  const locked = !!workflow.readonly || workflow.can_edit === false;
 
   return (
     <>
@@ -1003,7 +1034,10 @@ export function WorkflowDefinitionCard({ workflow, selected, loading, hidden, di
             : <span className="text-base leading-none mt-0.5 shrink-0">🔗</span>
           }
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-slate-200 truncate">{workflow.name}</p>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <p className="text-xs font-semibold text-slate-200 truncate">{workflow.name}</p>
+              <PrivateBadge resource={workflow} />
+            </div>
             {workflow.description && (
               <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">
                 {workflow.description}
@@ -1015,7 +1049,7 @@ export function WorkflowDefinitionCard({ workflow, selected, loading, hidden, di
 
         <div className="absolute top-2 right-2 flex items-center gap-0.5">
           {/* Enable/disable toggle — always visible while disabled, like the eye */}
-          {!workflow.readonly && (
+          {!locked && (
             <button
               onClick={(e) => { e.stopPropagation(); onToggleEnabled(); }}
               className={clsx(
@@ -1042,7 +1076,7 @@ export function WorkflowDefinitionCard({ workflow, selected, loading, hidden, di
           >
             {hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
           </button>
-          {!workflow.readonly && (
+          {!locked && (
             <>
               <button onClick={(e) => { e.stopPropagation(); onEdit(); }}
                 className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-violet-400 transition-colors opacity-0 group-hover:opacity-100" title="Edit">
@@ -1054,7 +1088,7 @@ export function WorkflowDefinitionCard({ workflow, selected, loading, hidden, di
               </button>
             </>
           )}
-          {workflow.readonly && (
+          {locked && (
             <span title="Read-only"><Lock className="w-3 h-3 text-slate-600" /></span>
           )}
         </div>
