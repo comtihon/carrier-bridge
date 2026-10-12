@@ -6,11 +6,13 @@ import {
   createScript,
   updateScript,
   ScriptNameConflictError,
+  type Ownership,
   type ScriptDefinition,
 } from "@/lib/api";
 import { CodeEditor } from "./CodeEditor";
+import { AccessSection, canEdit, useVisibilityDraft } from "./Visibility";
 
-export interface ScriptDraft {
+export interface ScriptDraft extends Ownership {
   /** null for a script that has never been saved. */
   id: string | null;
   name: string;
@@ -43,6 +45,8 @@ export function ScriptEditor({
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const access = useVisibilityDraft(draft, !draft.id);
+  const readOnly = !!draft.id && !canEdit(draft);
 
   // Switching to another script in the library replaces the form contents.
   useEffect(() => {
@@ -63,8 +67,8 @@ export function ScriptEditor({
     setError(null);
     try {
       const saved = draft.id
-        ? await updateScript(draft.id, { name: name.trim(), description, code })
-        : await createScript({ name: name.trim(), description, code, overwrite });
+        ? await updateScript(draft.id, { name: name.trim(), description, code, ...access.payload })
+        : await createScript({ name: name.trim(), description, code, overwrite, ...access.payload });
       setConflict(false);
       setSavedAt(new Date().toLocaleTimeString());
       onSaved(saved);
@@ -74,7 +78,7 @@ export function ScriptEditor({
     } finally {
       setSaving(false);
     }
-  }, [draft.id, name, description, code, onSaved]);
+  }, [draft.id, name, description, code, onSaved, access.payload]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -88,11 +92,13 @@ export function ScriptEditor({
           {draft.id && <p className="text-[10px] text-slate-500 font-mono truncate">{draft.id}</p>}
         </div>
         {savedAt && <span className="text-[10px] text-emerald-400">Saved {savedAt}</span>}
-        <button onClick={() => save(false)} disabled={saving}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition-colors disabled:opacity-50">
-          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          Save
-        </button>
+        {!readOnly && (
+          <button onClick={() => save(false)} disabled={saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition-colors disabled:opacity-50">
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Save
+          </button>
+        )}
         <button onClick={onClose}
           className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-slate-200 transition-colors"
           title="Close editor">
@@ -124,16 +130,17 @@ export function ScriptEditor({
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        <AccessSection resource={draft} isNew={!draft.id} draft={access} kind="script" />
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Name</label>
             <input type="text" value={name} onChange={(e) => { setName(e.target.value); setConflict(false); }}
-              placeholder="e.g. Normalize Jira payload" className={inputCls} />
+              disabled={readOnly} placeholder="e.g. Normalize Jira payload" className={inputCls} />
           </div>
           <div className="space-y-1">
             <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Description</label>
             <input type="text" value={description} onChange={(e) => setDescription(e.target.value)}
-              placeholder="What does this script do?" className={inputCls} />
+              disabled={readOnly} placeholder="What does this script do?" className={inputCls} />
           </div>
         </div>
 
@@ -143,7 +150,7 @@ export function ScriptEditor({
             Runs with a <span className="font-mono text-slate-400">state</span> dict in scope; assign{" "}
             <span className="font-mono text-slate-400">output</span> to store a result.
           </p>
-          <CodeEditor value={code} onChange={setCode} minHeight={360}
+          <CodeEditor value={code} onChange={setCode} minHeight={360} readOnly={readOnly}
             placeholder={'# state dict is available\noutput = state["plan"].upper()'} />
         </div>
       </div>

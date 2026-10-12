@@ -26,6 +26,7 @@ export function ResourceEditorFrame({
   onClose,
   initialWidth = 512,
   minWidth = 380,
+  readOnly = false,
   children,
 }: {
   surface: EditorSurface;
@@ -38,6 +39,12 @@ export function ResourceEditorFrame({
   /** Overlay only — the main window is sized by the layout. */
   initialWidth?: number;
   minWidth?: number;
+  /**
+   * The caller may look but not change it (someone else's resource). Every
+   * control in the form is disabled and submitting does nothing; the close
+   * button lives outside the form and keeps working.
+   */
+  readOnly?: boolean;
   children: React.ReactNode;
 }) {
   const [size, setSize] = useState({ w: initialWidth, h: 0 }); // h=0 means auto
@@ -65,6 +72,11 @@ export function ResourceEditorFrame({
     window.addEventListener("mouseup", onUp);
   }
 
+  const submit = readOnly ? (e: React.FormEvent) => e.preventDefault() : onSubmit;
+  const body = readOnly
+    ? <fieldset disabled className="space-y-4 min-w-0">{children}</fieldset>
+    : children;
+
   if (surface === "center") {
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -80,8 +92,8 @@ export function ResourceEditorFrame({
           </button>
         </div>
         {/* The form scrolls, so the fields keep their modal layout unchanged. */}
-        <form onSubmit={onSubmit} className="flex-1 overflow-y-auto px-6 py-4 space-y-4 max-w-3xl">
-          {children}
+        <form onSubmit={submit} className="flex-1 overflow-y-auto px-6 py-4 space-y-4 max-w-3xl">
+          {body}
         </form>
       </div>
     );
@@ -102,8 +114,8 @@ export function ResourceEditorFrame({
           </button>
         </div>
 
-        <form onSubmit={onSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
-          {children}
+        <form onSubmit={submit} className="p-5 space-y-4 overflow-y-auto flex-1">
+          {body}
         </form>
 
         {/* resize handle — bottom-right corner */}

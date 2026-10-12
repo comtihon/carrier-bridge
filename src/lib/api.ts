@@ -11,7 +11,11 @@ import type {
   ApprovalCaseStatus,
   ApprovalListResponse,
   ApprovalHistoryResponse,
+  Ownership,
+  Visibility,
 } from "./types";
+
+export type { Ownership, Visibility } from "./types";
 
 import { BACKEND_URL } from "./config";
 import { getAccessToken } from "./oidc";
@@ -33,11 +37,24 @@ async function request<T>(
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${body || res.statusText}`);
+    // A backend `detail` is written for people (who owns this, what still
+    // references it) — show it as is; anything else keeps the status prefix.
+    const detail = detailText(body);
+    throw new Error(detail ?? `API ${res.status}: ${body || res.statusText}`);
   }
   // 204 No Content
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+/** The backend's `detail` when the body is `{"detail": "..."}`, else null. */
+function detailText(text: string): string | null {
+  try {
+    const parsed = JSON.parse(text);
+    return typeof parsed?.detail === "string" && parsed.detail ? parsed.detail : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -219,6 +236,7 @@ export async function createWorkflowDefinition(payload: {
   ui?: Record<string, unknown>;
   use_meta_llm?: boolean;
   use_storage?: boolean;
+  visibility?: Visibility;
 }): Promise<ApiWorkflowDefinition> {
   return request<ApiWorkflowDefinition>("/workflows", {
     method: "POST",
@@ -237,6 +255,8 @@ export async function updateWorkflowDefinition(
     use_storage?: boolean;
     /** Omit to keep the stored value; the backend only changes it when sent. */
     enabled?: boolean;
+    /** Same: omitted keeps who can see it. */
+    visibility?: Visibility;
   },
 ): Promise<ApiWorkflowDefinition> {
   return request<ApiWorkflowDefinition>(`/workflows/${id}`, {
@@ -269,6 +289,28 @@ export async function setWorkflowEnabled(
 
 export async function deleteWorkflowDefinition(id: string): Promise<void> {
   return request<void>(`/workflows/${id}`, { method: "DELETE" });
+}
+
+// ─── Current user ─────────────────────────────────────────────────────────────
+
+/** Who the backend thinks is calling, and whether it authenticates at all. */
+export interface CurrentUser {
+  sub: string | null;
+  name: string | null;
+  is_admin: boolean;
+  auth_enabled: boolean;
+}
+
+/**
+ * `GET /me`, or null when the backend has no such route (older backends) or
+ * the call fails — both mean "no per-user visibility here", never an error.
+ */
+export async function getCurrentUser(): Promise<CurrentUser | null> {
+  try {
+    return await request<CurrentUser>("/me");
+  } catch {
+    return null;
+  }
 }
 
 // ─── LLM providers ────────────────────────────────────────────────────────────
@@ -316,7 +358,7 @@ export type AgentAddonEntry =
    */
   | { type: "datasource"; source_id: string; allowed_operations: string[] };
 
-export interface AgentDefinition {
+export interface AgentDefinition extends Ownership {
   id: string;
   name: string;
   description: string | null;
@@ -347,6 +389,7 @@ export interface AgentCreateRequest {
   addons?: AgentAddonEntry[];
   protocol?: "http-poll" | "acp";
   acp_agent?: string | null;
+  visibility?: Visibility;
 }
 
 export interface AgentUpdateRequest {
@@ -360,6 +403,7 @@ export interface AgentUpdateRequest {
   addons?: AgentAddonEntry[];
   protocol?: "http-poll" | "acp";
   acp_agent?: string | null;
+  visibility?: Visibility;
 }
 
 export async function listAgents(): Promise<AgentDefinition[]> {
@@ -367,7 +411,8 @@ export async function listAgents(): Promise<AgentDefinition[]> {
 }
 
 /** What a list of agents draws: no `agent_input` (the system prompt), no addons. */
-export type AgentSummary = Pick<AgentDefinition, "id" | "name" | "description" | "default_runtime">;
+export type AgentSummary =
+  Pick<AgentDefinition, "id" | "name" | "description" | "default_runtime"> & Ownership;
 
 /**
  * Agents without the parts only the editor reads.
@@ -594,7 +639,7 @@ export interface DataSourceOperation {
 
 export type DataSourceKind = "http" | "graphql";
 
-export interface DataSourceDefinition {
+export interface DataSourceDefinition extends Ownership {
   id: string;
   name: string;
   description: string | null;
@@ -620,6 +665,7 @@ export interface DataSourceCreateRequest {
   default_headers?: Record<string, string>;
   operations?: DataSourceOperation[];
   timeout_seconds?: number;
+  visibility?: Visibility;
 }
 
 export interface DataSourceUpdateRequest {
@@ -631,6 +677,7 @@ export interface DataSourceUpdateRequest {
   default_headers?: Record<string, string>;
   operations?: DataSourceOperation[];
   timeout_seconds?: number;
+  visibility?: Visibility;
 }
 
 export async function listDatasources(): Promise<DataSourceDefinition[]> {
@@ -643,7 +690,7 @@ export async function listDatasources(): Promise<DataSourceDefinition[]> {
  * that make an imported OpenAPI source big are left behind.
  */
 export type DataSourceSummary =
-  Pick<DataSourceDefinition, "id" | "name" | "description" | "kind" | "base_url"> & {
+  Pick<DataSourceDefinition, "id" | "name" | "description" | "kind" | "base_url"> & Ownership & {
     operations: Pick<DataSourceOperation, "name" | "method">[];
   };
 
@@ -1330,7 +1377,7 @@ export async function tryDatasourceOperation(payload: TryOperationRequest): Prom
 
 // ─── Script library ───────────────────────────────────────────────────────────
 
-export interface ScriptDefinition {
+export interface ScriptDefinition extends Ownership {
   id: string;
   name: string;
   description?: string | null;
@@ -1347,6 +1394,7 @@ export interface ScriptCreateRequest {
   code: string;
   /** Set after the user confirmed the overwrite warning raised by a 409. */
   overwrite?: boolean;
+  visibility?: Visibility;
 }
 
 /** Thrown by `createScript` when the name is taken and `overwrite` was not set. */
@@ -1362,7 +1410,7 @@ export async function listScripts(): Promise<ScriptDefinition[]> {
 }
 
 /** What a list of scripts draws: no `code`, which is all of a script's weight. */
-export type ScriptSummary = Pick<ScriptDefinition, "id" | "name" | "description">;
+export type ScriptSummary = Pick<ScriptDefinition, "id" | "name" | "description"> & Ownership;
 
 /**
  * Scripts without their bodies.
@@ -1403,7 +1451,7 @@ export async function createScript(payload: ScriptCreateRequest): Promise<Script
 
 export async function updateScript(
   id: string,
-  payload: { name: string; description?: string | null; code: string },
+  payload: { name: string; description?: string | null; code: string; visibility?: Visibility },
 ): Promise<ScriptDefinition> {
   return request<ScriptDefinition>(`/scripts/${encodeURIComponent(id)}`, {
     method: "PUT",

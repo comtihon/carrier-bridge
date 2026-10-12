@@ -5,6 +5,7 @@ import { Database, Loader2, Plus, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
 import { deleteDatasource, listDatasourceSummaries, type DataSourceSummary } from "@/lib/api";
 import { PanelShell } from "./dock";
+import { PrivateBadge, canEdit } from "../Visibility";
 import { DatasourceRiskBadge } from "../DatasourceRiskBadge";
 
 /**
@@ -92,7 +93,10 @@ export function DatasourcesPanel({
               <div className="flex items-start gap-2">
                 <Database className="w-4 h-4 mt-0.5 shrink-0 text-cyan-400" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-slate-200 truncate">{ds.name || ds.id}</p>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <p className="text-xs font-semibold text-slate-200 truncate">{ds.name || ds.id}</p>
+                    <PrivateBadge resource={ds} />
+                  </div>
                   <p className="text-[10px] text-slate-500 truncate mt-0.5">{ds.base_url || ds.kind}</p>
                   <p className="text-[10px] text-slate-600 mt-1 font-mono">{ds.id}</p>
                 </div>
@@ -103,11 +107,13 @@ export function DatasourcesPanel({
                   kind={ds.kind}
                   className="mt-0.5"
                 />
-                <button onClick={(e) => { e.stopPropagation(); setConfirming(ds); }}
-                  className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                  title="Delete">
-                  <Trash2 className="w-3 h-3" />
-                </button>
+                {canEdit(ds) && (
+                  <button onClick={(e) => { e.stopPropagation(); setConfirming(ds); }}
+                    className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                    title="Delete">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
               </div>
             </div>
           ))}

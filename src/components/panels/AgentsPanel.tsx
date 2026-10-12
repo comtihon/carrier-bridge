@@ -5,6 +5,7 @@ import { Bot, Loader2, Plus, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
 import { deleteAgent, listAgentSummaries, type AgentSummary } from "@/lib/api";
 import { PanelShell } from "./dock";
+import { PrivateBadge, canEdit } from "../Visibility";
 
 /**
  * Pre-configured agents: view, edit, add.
@@ -91,17 +92,22 @@ export function AgentsPanel({
               <div className="flex items-start gap-2">
                 <Bot className="w-4 h-4 mt-0.5 shrink-0 text-fuchsia-400" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-slate-200 truncate">{a.name || a.id}</p>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <p className="text-xs font-semibold text-slate-200 truncate">{a.name || a.id}</p>
+                    <PrivateBadge resource={a} />
+                  </div>
                   {a.description && (
                     <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">{a.description}</p>
                   )}
                   <p className="text-[10px] text-slate-600 mt-1 font-mono">{a.default_runtime}</p>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); setConfirming(a); }}
-                  className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                  title="Delete">
-                  <Trash2 className="w-3 h-3" />
-                </button>
+                {canEdit(a) && (
+                  <button onClick={(e) => { e.stopPropagation(); setConfirming(a); }}
+                    className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                    title="Delete">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
               </div>
             </div>
           ))}

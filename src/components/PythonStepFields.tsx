@@ -179,7 +179,7 @@ export function PythonStepFields({
               className={inputCls}>
               <option value="">— select a script —</option>
               {scripts.map((s) => (
-                <option key={s.id} value={s.id}>{s.name || s.id}</option>
+                <option key={s.id} value={s.id}>{s.name || s.id}{s.visibility === "private" ? " · private" : ""}</option>
               ))}
             </select>
             {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin shrink-0" />}
