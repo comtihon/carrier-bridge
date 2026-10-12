@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── CopilotKit overrides ─────────────────────────────────────────────────── */
+.copilotKitSidebar {
+  --copilot-kit-primary-color: #0ea5e9;
+  --copilot-kit-contrast-color: #ffffff;
+  --copilot-kit-secondary-contrast-color: #e0f2fe;
+  --copilot-kit-background-color: #0f172a;
+  --copilot-kit-muted-color: #94a3b8;
+  border-left: 1px solid #1e293b;
+}
+
+/* ── ReactFlow overrides ──────────────────────────────────────────────────── */
+.react-flow__node {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: #020617;
+  color: #e2e8f0;
+}
+
+/* Pulse ring animation for active graph nodes */
+@keyframes ring-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(14, 165, 233, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(14, 165, 233, 0);
+  }
+}
+
+.node-active {
+  animation: ring-pulse 1.5s ease-in-out infinite;
+}
+
+/* ── Prism (CodeEditor: Python, JSON and GraphQL) ─────────────────────────── */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #64748b;
+  font-style: italic;
+}
+.token.punctuation {
+  color: #94a3b8;
+}
+.token.string,
+.token.triple-quoted-string,
+.token.char {
+  color: #86efac;
+}
+.token.number,
+.token.boolean {
+  color: #fdba74;
+}
+.token.keyword,
+.token.control-flow {
+  color: #c4b5fd;
+}
+.token.builtin,
+.token.class-name,
+.token.property,
+.token.attr-name,
+.token.variable {
+  color: #7dd3fc;
+}
+.token.function,
+.token.decorator,
+.token.annotation,
+.token.definition-query,
+.token.definition-mutation,
+.token.atom-input,
+.token.scalar {
+  color: #f0abfc;
+}
+.token.operator {
+  color: #e2e8f0;
+}
+.token.interpolation {
+  color: #fde68a;
+}

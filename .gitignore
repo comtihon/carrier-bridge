@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# build output
+.next/
+out/
+
+# env files (keep example, ignore actual secrets)
+.env
+.env.local
+.env.*.local
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+
+# graphify knowledge graph is stored as an OCI artifact in Artifact Registry, not in git
+graphify-out/
+
+# Agent worktrees (full duplicates of src/ — must never be collected by tooling)
+.claude/worktrees/
+
+# TypeScript incremental build cache
+*.tsbuildinfo

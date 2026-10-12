@@ -1,0 +1,141 @@
+# Example Cloud Build pipeline: test, build the static export, sync it to a GCS
+# bucket behind a CDN. Every value below is a placeholder — set the real ones as
+# substitutions on your Cloud Build trigger.
+substitutions:
+  _GRAPHS_REGISTRY: "REGION-docker.pkg.dev/YOUR_PROJECT/graphs"
+  _GRAPHIFY_IMAGE: "REGION-docker.pkg.dev/YOUR_PROJECT/images/graphify"
+  _GEMINI_SECRET: "projects/YOUR_PROJECT/secrets/gemini-api-key/versions/latest"
+  _BUCKET: your-carrier-bridge-bucket
+  _URL_MAP: your-carrier-bridge-url-map
+  _INFRA_PROJECT: your-infra-project
+  _BACKEND_URL: https://backend.example.com
+  _COPILOTKIT_URL: https://backend.example.com/copilotkit
+  _ZITADEL_ISSUER: https://auth.example.com
+  _ZITADEL_CLIENT_ID: ""
+
+steps:
+  # ── 1. Install dependencies ───────────────────────────────────────────────────
+  - id: install
+    name: "node:20"
+    entrypoint: npm
+    args: ["ci"]
+
+  # ── 2. Run tests ──────────────────────────────────────────────────────────────
+  - id: test
+    name: "node:20"
+    entrypoint: npm
+    args: ["run", "test", "--", "--run"]
+    waitFor:
+      - install
+
+  # ── 3. Build static export ────────────────────────────────────────────────────
+  - id: build
+    name: "node:20"
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        NEXT_PUBLIC_BACKEND_URL=$_BACKEND_URL \
+        NEXT_PUBLIC_COPILOTKIT_URL=$_COPILOTKIT_URL \
+        NEXT_PUBLIC_ZITADEL_ISSUER=$_ZITADEL_ISSUER \
+        NEXT_PUBLIC_ZITADEL_CLIENT_ID=$_ZITADEL_CLIENT_ID \
+        npm run build
+    waitFor:
+      - test
+
+  # ── 2. Upload to GCS ───────────────────────────────────────────────────────────
+  - id: deploy
+    name: "gcr.io/cloud-builders/gsutil"
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        echo "window.runtimeConfig = {BACKEND_URL: \"$_BACKEND_URL\", NEXT_PUBLIC_AUTH_ENABLED: true, NEXT_PUBLIC_SHOW_RAW_JSON: false};" > out/config.js
+        gsutil -m rsync -d -r out/ gs://$_BUCKET
+    waitFor:
+      - build
+
+  # ── 3. Invalidate CDN cache ────────────────────────────────────────────────────
+  - id: invalidate-cdn
+    name: "gcr.io/cloud-builders/gcloud"
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud compute url-maps invalidate-cdn-cache $_URL_MAP --path '/*' --async --project=$_INFRA_PROJECT
+    waitFor:
+      - deploy
+
+  - id: "Index codebase with graphify"
+    name: "${_GRAPHIFY_IMAGE}"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$BRANCH_NAME" != "main" ]; then
+          exit 0
+        fi
+        if [ -z "$REPO_NAME" ]; then
+          echo "REPO_NAME is unset; cannot resolve the graph artifact ref. Skipping."
+          exit 0
+        fi
+        # Best-effort: the graph is developer tooling, never fail the build over it.
+        (
+          set -e
+          GRAPH_REF="${_GRAPHS_REGISTRY}/$REPO_NAME"
+
+          # Install oras
+          ORAS_URL="https://github.com/oras-project/oras/releases/download/v1.2.3/oras_1.2.3_linux_amd64.tar.gz"
+          if command -v curl >/dev/null 2>&1; then
+            curl -fsSL "$$ORAS_URL" -o /tmp/oras.tar.gz
+          else
+            python3 -c "import urllib.request; urllib.request.urlretrieve('$$ORAS_URL', '/tmp/oras.tar.gz')"
+          fi
+          tar -xzf /tmp/oras.tar.gz -C /usr/local/bin oras
+
+          # Authenticate to Artifact Registry with the Cloud Build service account token
+          if command -v gcloud >/dev/null 2>&1; then
+            TOKEN=$$(gcloud auth print-access-token)
+          else
+            TOKEN=$$(python3 -c "import urllib.request, json; req = urllib.request.Request('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token', headers={'Metadata-Flavor': 'Google'}); print(json.load(urllib.request.urlopen(req))['access_token'])")
+          fi
+          oras login -u oauth2accesstoken -p "$$TOKEN" "$${GRAPH_REF%%/*}"
+
+          TREE=$$(git rev-parse "HEAD^{tree}")
+
+          # Promote-on-merge: if this exact tree is already indexed (e.g. staging
+          # merged into the default branch with no changes), just retag it.
+          if oras manifest fetch "$$GRAPH_REF:tree-$$TREE" >/dev/null 2>&1; then
+            echo "Graph for tree $$TREE already exists, retagging as $BRANCH_NAME"
+            oras tag "$$GRAPH_REF:tree-$$TREE" "$BRANCH_NAME"
+            exit 0
+          fi
+
+          # Fetch the previous graph for this branch and update it incrementally
+          # (AST-only, no LLM); build from scratch (needs LLM API key) if none exists.
+          if oras pull "$$GRAPH_REF:$BRANCH_NAME" -o .; then
+            graphify update . --no-cluster --force
+          else
+            graphify extract . --no-cluster
+          fi
+
+          oras push "$$GRAPH_REF:tree-$$TREE" graphify-out/
+          oras tag "$$GRAPH_REF:tree-$$TREE" "$BRANCH_NAME"
+        ) || echo "WARNING: graphify graph build failed; continuing (graph is tooling, not a deploy gate)"
+        exit 0
+    secretEnv: ["GEMINI_API_KEY"]
+    waitFor:
+      - invalidate-cdn
+
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 600s
+
+availableSecrets:
+  secretManager:
+    - versionName: ${_GEMINI_SECRET}
+      env: "GEMINI_API_KEY"
