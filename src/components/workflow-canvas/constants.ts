@@ -15,6 +15,9 @@ export const TYPE_COLORS: Record<string, { border: string; bg: string; text: str
   python:           { border: "#facc15", bg: "bg-yellow-900/50",  text: "text-yellow-200"  },
   "langgraph-agent":{ border: "#a78bfa", bg: "bg-violet-900/50",  text: "text-violet-200"  },
   data_source:      { border: "#22d3ee", bg: "bg-cyan-900/50",    text: "text-cyan-200"    },
+  // Several fetches chained into one output: related to data_source, but blue
+  // so a pyramid of parts never reads as a single fetch.
+  combined_datasource: { border: "#60a5fa", bg: "bg-blue-900/50", text: "text-blue-200"    },
   // A pass-through export, so deliberately not cyan: a Data node must not read
   // as a data_source that goes and fetches something.
   data:             { border: "#94a3b8", bg: "bg-slate-800/70",   text: "text-slate-200"   },

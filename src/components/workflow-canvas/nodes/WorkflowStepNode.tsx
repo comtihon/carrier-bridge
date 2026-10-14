@@ -8,6 +8,34 @@ import { TYPE_COLORS, STATE_STYLES } from "../constants";
 import { TYPE_ICONS } from "../utils/typeIcons";
 import { formatTokensK } from "@/lib/formatTokens";
 import { NodeDatasourceRiskBadge } from "@/components/DatasourceRiskBadge";
+import type { CombinedPart, RunPartStatus } from "@/lib/types";
+import { CombinedPartsList } from "./CombinedPartsList";
+
+/**
+ * The pyramid under a combined_datasource node: output key and part count,
+ * then the ordered parts as a mini chain (run-coloured in run mode).
+ */
+function CombinedBody({ data }: { data: WorkflowStepNodeData }) {
+  const parts = (Array.isArray(data.parts) ? data.parts : []) as CombinedPart[];
+  const runParts = (Array.isArray(data.runParts) ? data.runParts : undefined) as RunPartStatus[] | undefined;
+  const count = parts.length || runParts?.length || 0;
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-white/10 space-y-1 w-full" data-testid="combined-body">
+      <div className="flex items-center gap-1 text-[9px] text-slate-400 font-mono min-w-0">
+        {typeof data.output_key === "string" && data.output_key && (
+          <span className="truncate min-w-0" title={`output_key: ${data.output_key}`}>→ {data.output_key}</span>
+        )}
+        <span className="ml-auto shrink-0">{count} part{count === 1 ? "" : "s"}</span>
+      </div>
+      <CombinedPartsList
+        parts={parts}
+        output={data.output_part as string | undefined}
+        runParts={runParts}
+        runOutputPart={data.runOutputPart as string | undefined}
+      />
+    </div>
+  );
+}
 
 // ─── Data interface ───────────────────────────────────────────────────────────
 
@@ -47,6 +75,7 @@ export function WorkflowStepNode({ id, data, selected }: NodeProps) {
   );
 
   const runState = nodeData.runState;
+  const isCombined = nodeData.stepType === "combined_datasource";
 
   // A datasource node runs one operation, so the badge reflects that operation
   // (falling back to the whole source until one is picked). Only this node type
@@ -80,7 +109,7 @@ export function WorkflowStepNode({ id, data, selected }: NodeProps) {
         />
         <div
           className={clsx(
-            "flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium w-44 cursor-pointer transition-all",
+            "px-3 py-2 rounded-lg border text-xs font-medium w-44 cursor-pointer transition-all",
             colors.bg,
             colors.text,
             styles.ring,
@@ -88,6 +117,7 @@ export function WorkflowStepNode({ id, data, selected }: NodeProps) {
           )}
           style={{ borderColor }}
         >
+          <div className="flex items-center gap-2">
           <span className="text-base leading-none shrink-0">{TYPE_ICONS[nodeData.stepType] ?? "•"}</span>
           <div className="flex flex-col min-w-0 flex-1">
             <span className="truncate">{nodeData.label}</span>
@@ -117,6 +147,8 @@ export function WorkflowStepNode({ id, data, selected }: NodeProps) {
           {(runState === "skipped" || runState === "cancelled") && (
             <span className="ml-auto text-slate-500 flex-shrink-0">⊘</span>
           )}
+          </div>
+          {isCombined && <CombinedBody data={nodeData} />}
         </div>
         <Handle
           type="source"
@@ -141,20 +173,23 @@ export function WorkflowStepNode({ id, data, selected }: NodeProps) {
       />
       <div
         className={clsx(
-          "flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium w-44 select-none cursor-pointer transition-all",
+          "px-3 py-2 rounded-lg border text-xs font-medium w-44 select-none cursor-pointer transition-all",
           colors.bg,
           colors.text,
           selected && "ring-2 ring-white/50",
         )}
         style={{ borderColor: selected ? "#e2e8f0" : colors.border }}
       >
-        <span className="text-base leading-none shrink-0">
-          {TYPE_ICONS[nodeData.stepType] ?? "•"}
-        </span>
-        {/* min-w-0 flex-1: the label yields to the badge instead of shoving it
-            out of the node's fixed width. */}
-        <span className="truncate min-w-0 flex-1">{nodeData.label}</span>
-        {riskBadge}
+        <div className="flex items-center gap-2">
+          <span className="text-base leading-none shrink-0">
+            {TYPE_ICONS[nodeData.stepType] ?? "•"}
+          </span>
+          {/* min-w-0 flex-1: the label yields to the badge instead of shoving it
+              out of the node's fixed width. */}
+          <span className="truncate min-w-0 flex-1">{nodeData.label}</span>
+          {riskBadge}
+        </div>
+        {isCombined && <CombinedBody data={nodeData} />}
       </div>
       {typeof nodeData.onDelete === "function" && (hovered || selected) && (
         <button

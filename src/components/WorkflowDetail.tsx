@@ -25,11 +25,14 @@ import { WorkflowRunCanvas } from "./workflow-canvas/WorkflowRunCanvas";
 import { DynamicRunView, hasDynamicDag } from "./dynamic/DynamicRunView";
 import { DynamicDecisionPanel } from "./dynamic/DynamicDecisionPanel";
 import { isDynamicWorkflow } from "./dynamic/dynamicWorkflow";
-import type { EditableWorkflowDefinition } from "@/lib/types";
+import type { EditableNodeConfig, EditableWorkflowDefinition } from "@/lib/types";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { StatusBadge } from "./StatusBadge";
 import { TracePanel } from "./TracePanel";
 import { RunDataPanel } from "./RunDataPanel";
+import { StoredOutputRef } from "./StoredOutputRef";
+import { isOutputRef } from "@/lib/outputRef";
+import { CombinedPartsList } from "./workflow-canvas/nodes/CombinedPartsList";
 import { effectiveStatus } from "@/lib/types";
 import { MarkdownView } from "./Markdown";
 import { retryWorkflowRun, restartFromStep, agentReply, getWorkflowDefinition, terminateWorkflowRun, listS3AddonFiles, getS3SignedUrl } from "@/lib/api";
@@ -197,9 +200,12 @@ function StepDetail({
   onClose,
   onUpdate,
   traceResponse,
+  definition,
 }: {
   run: WorkflowRun;
   stepId: string;
+  /** The step as the workflow defines it, when the definition loaded. */
+  definition?: EditableNodeConfig;
   onClose: () => void;
   onUpdate?: (run: WorkflowRun) => void;
   traceResponse?: ReturnType<typeof useRunTrace>;
@@ -263,6 +269,9 @@ function StepDetail({
     : undefined;
 
   const renderValue = (value: unknown) => {
+    if (isOutputRef(value)) {
+      return <StoredOutputRef value={value} />;
+    }
     if (typeof value === "string") {
       return <MarkdownView text={value} />;
     }
@@ -395,6 +404,19 @@ function StepDetail({
 
         {step.status !== "running" && agentProgress && agentProgress.length > 0 && (
           <LiveProgressView progress={agentProgress} title="Full context" />
+        )}
+
+        {(step.parts?.length || definition?.type === "combined_datasource") && (
+          <div className="space-y-1" data-testid="step-detail-parts">
+            <p className="text-[10px] text-slate-500 uppercase font-medium tracking-wide">Parts</p>
+            <CombinedPartsList
+              parts={definition?.parts}
+              output={definition?.output_part}
+              runParts={step.parts}
+              runOutputPart={step.output_part}
+              showErrors
+            />
+          </div>
         )}
 
         {stepOutputEntries ? (
@@ -885,7 +907,7 @@ export function WorkflowDetail({ run, onUpdate, onRefresh }: Props) {
       {/* Popups */}
       <PopupModal open={!!selectedStep} onClose={() => setSelectedStep(null)} size="lg">
         {selectedStep && (
-          <StepDetail run={run} stepId={selectedStep} onClose={() => setSelectedStep(null)} onUpdate={onUpdate} traceResponse={traceResponse ?? undefined} />
+          <StepDetail run={run} stepId={selectedStep} definition={editableWf?.nodes.find((n) => n.id === selectedStep)} onClose={() => setSelectedStep(null)} onUpdate={onUpdate} traceResponse={traceResponse ?? undefined} />
         )}
       </PopupModal>
 

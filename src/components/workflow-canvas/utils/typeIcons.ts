@@ -18,6 +18,7 @@ export const TYPE_ICONS: Record<string, string> = {
   python:            "🐍",
   "langgraph-agent": "🤖",
   data_source:       "🗄️",
+  combined_datasource: "🗃️",
   data:              "📦",
   slack:             "💬",
   // Run-canvas extra keys

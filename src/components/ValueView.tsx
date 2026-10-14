@@ -1,5 +1,7 @@
 "use client";
 
+import { StoredOutputRef } from "./StoredOutputRef";
+import { isOutputRef } from "@/lib/outputRef";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Prism from "prismjs";
 import "prismjs/components/prism-json";
@@ -109,7 +111,13 @@ function MarkedText({ text, query }: { text: string; query: string }) {
   return <Highlighted text={text} query={query} />;
 }
 
+/** A stored-output reference renders as size + preview + download, never raw JSON. */
 export function ValueView({ value, className }: { value: unknown; className?: string }) {
+  if (isOutputRef(value)) return <StoredOutputRef value={value} />;
+  return <ValueViewBody value={value} className={className} />;
+}
+
+function ValueViewBody({ value, className }: { value: unknown; className?: string }) {
   const pretty = useMemo(() => prettyValue(value), [value]);
   const tree = useMemo(() => buildValueTree(value, pretty), [value, pretty]);
 

@@ -103,6 +103,8 @@ function WorkflowRunCanvasInner({ workflow, run, onStepClick, onS3AddonClick }: 
           runState: state,
           tokenTotal: computeTokenTotal(step, run),
           metaTotal: computeMetaTokenTotal(step, run),
+          runParts: step.parts,
+          runOutputPart: step.output_part,
         };
       }
       const _count = addonCounts.get(n.id);
@@ -165,8 +167,21 @@ function WorkflowRunCanvasInner({ workflow, run, onStepClick, onS3AddonClick }: 
         n.data.runState === newState
         && n.data.tokenTotal === newTokenTotal
         && n.data.metaTotal === newMetaTotal
+        && n.data.runParts === step.parts
+        && n.data.runOutputPart === step.output_part
       ) return n;
-      return { ...n, data: { ...n.data, runState: newState, tokenTotal: newTokenTotal, metaTotal: newMetaTotal } };
+      return {
+        ...n,
+        data: {
+          ...n.data,
+          runState: newState,
+          tokenTotal: newTokenTotal,
+          metaTotal: newMetaTotal,
+          // combined_datasource: per-part status; undefined on other steps / older backends.
+          runParts: step.parts,
+          runOutputPart: step.output_part,
+        },
+      };
     }));
   }, [run, setNodes]);
 
