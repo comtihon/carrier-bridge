@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Loader2, Pencil, Plus, Shield, ShieldOff, Trash2, UserMinus, Users, X } from "lucide-react";
+import { Check, KeyRound, Loader2, Pencil, Plus, Shield, ShieldOff, Trash2, UserCog, UserMinus, Users, X } from "lucide-react";
 import { clsx } from "clsx";
 import {
   createTeam, deleteTeam, isSuperAdmin, listTeams, listUsers, removeTeamMember, renameTeam, setTeamMember,
   type CurrentUser, type Team, type TeamMember, type UserInfo,
 } from "@/lib/api";
 import { PanelShell } from "./dock";
+import type { AdminTab } from "../admin/AdminView";
 
 /**
  * Teams and who is in them.
@@ -20,8 +21,15 @@ import { PanelShell } from "./dock";
  *    team yet, remove members, promote or demote. `/teams` and `/users` already
  *    come back scoped to that.
  * Plain members never see this panel; the dock shows their team instead.
+ *
+ * Super admins also get links to the Users and Login script administration,
+ * which open in the centre pane (`onOpenAdmin`).
  */
-export function TeamsPanel({ me, onClose }: { me: CurrentUser | null; onClose: () => void }) {
+export function TeamsPanel({ me, onClose, onOpenAdmin }: {
+  me: CurrentUser | null;
+  onClose: () => void;
+  onOpenAdmin?: (tab: AdminTab) => void;
+}) {
   const superAdmin = isSuperAdmin(me);
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<UserInfo[]>([]);
@@ -69,6 +77,18 @@ export function TeamsPanel({ me, onClose }: { me: CurrentUser | null; onClose: (
       ) : undefined}
     >
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
+        {superAdmin && onOpenAdmin && (
+          <div className="flex gap-1">
+            <button onClick={() => onOpenAdmin("users")}
+              className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 text-[11px] font-semibold">
+              <UserCog className="w-3 h-3" />Users
+            </button>
+            <button onClick={() => onOpenAdmin("login-script")}
+              className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 text-[11px] font-semibold">
+              <KeyRound className="w-3 h-3" />Login script
+            </button>
+          </div>
+        )}
         {error && (
           <p role="alert" className="text-[10px] text-red-400 bg-red-950/30 border border-red-800 rounded px-2 py-1">{error}</p>
         )}

@@ -5,10 +5,11 @@ import Prism from "prismjs";
 import "prismjs/components/prism-python";
 import "prismjs/components/prism-json";
 import "prismjs/components/prism-graphql";
+// javascript ships with Prism core.
 import { clsx } from "clsx";
 
 /** The grammars imported above — nothing else can be painted. */
-export type CodeLanguage = "python" | "json" | "graphql";
+export type CodeLanguage = "python" | "json" | "graphql" | "javascript";
 
 /**
  * Source editor with syntax highlighting.
