@@ -42,7 +42,8 @@ import { EventModal, EventNameConflictDialog, parseEventSchema } from "./EventMo
 import { CodeEditor } from "./CodeEditor";
 import { ResourceEditorFrame, type EditorSurface } from "./ResourceEditorFrame";
 import {
-  AccessSection, VisibilityBadge, canEdit, scopeConflict, useUsageScope, useVisibilityDraft, visibilitySuffix,
+  AccessSection, VisibilityBadge, canEdit, scopeConflict, useCurrentUser, useUsageScope, useVisibilityDraft,
+  visibilitySuffix, type UsageScope,
 } from "./Visibility";
 import { TYPE_ICONS as SHARED_TYPE_ICONS } from "./workflow-canvas/utils/typeIcons";
 import { WorkflowStepNode, SharedParallelNode, SharedSwitchNode, SharedJoinNode } from "./workflow-canvas/nodes";
@@ -1328,7 +1329,31 @@ export function DatasourceAddonPanel({
 }) {
   const { datasources, isLoading } = useDatasources();
   const [opFilter, setOpFilter] = useState("");
-  const scope = useUsageScope();
+  const workflowScope = useUsageScope();
+  const me = useCurrentUser();
+  // Attached to an agent, this edits the AGENT's own grant (persisted with
+  // updateAgentAddons below), so what may be picked follows the agent's scope,
+  // not the workflow's. Until the agent loads nothing is blocked; the backend
+  // has the last word either way.
+  const [agentScope, setAgentScope] = useState<UsageScope | null>(null);
+  useEffect(() => {
+    setAgentScope(null);
+    if (!agentId) return;
+    let live = true;
+    getAgent(agentId).then((a) => {
+      if (!live || !a?.visibility) return;
+      setAgentScope({
+        visibility: a.visibility,
+        teamId: a.visibility === "team"
+          ? (a.team_id ?? null)
+          // A private agent may use its owner's team's sources; known when
+          // the owner is the caller.
+          : (a.owner_id && a.owner_id === me?.sub ? (me?.team?.id ?? null) : null),
+      });
+    }).catch(() => {/* unknown scope: don't block */});
+    return () => { live = false; };
+  }, [agentId, me]);
+  const scope = agentId ? agentScope : workflowScope;
 
   // pubsub sources carry no operations, so there is nothing to grant on one.
   const selectable = useMemo(
