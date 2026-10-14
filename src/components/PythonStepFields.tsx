@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import type { EditableNodeConfig } from "@/lib/types";
 import { CodeEditor } from "./CodeEditor";
+import { scopeConflict, useUsageScope, visibilitySuffix } from "./Visibility";
 
 const inputCls =
   "w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 " +
@@ -52,6 +53,7 @@ export function PythonStepFields({
   const sandbox = config.sandbox !== false;
   const runtime = config.sandbox_runtime ?? "local";
 
+  const scope = useUsageScope();
   const [scripts, setScripts] = useState<ScriptSummary[]>([]);
   const [scriptsError, setScriptsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -178,9 +180,14 @@ export function PythonStepFields({
               onChange={(e) => selectScript(e.target.value)}
               className={inputCls}>
               <option value="">— select a script —</option>
-              {scripts.map((s) => (
-                <option key={s.id} value={s.id}>{s.name || s.id}{s.visibility === "private" ? " · private" : ""}</option>
-              ))}
+              {scripts.map((s) => {
+                const conflict = scopeConflict(scope, s);
+                return (
+                  <option key={s.id} value={s.id} disabled={!!conflict && s.id !== config.script_id} title={conflict ?? undefined}>
+                    {s.name || s.id}{visibilitySuffix(s)}{conflict ? " (not usable here)" : ""}
+                  </option>
+                );
+              })}
             </select>
             {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin shrink-0" />}
           </div>

@@ -294,11 +294,27 @@ export async function deleteWorkflowDefinition(id: string): Promise<void> {
 // ─── Current user ─────────────────────────────────────────────────────────────
 
 /** Who the backend thinks is calling, and whether it authenticates at all. */
+export type TeamRole = "member" | "admin";
+
 export interface CurrentUser {
   sub: string | null;
   name: string | null;
   is_admin: boolean;
+  /** System-wide admin; older backends only send `is_admin`, which means the same. */
+  is_super_admin?: boolean;
   auth_enabled: boolean;
+  /** The caller's team, if any; older backends omit it. */
+  team?: { id: string; name: string; role?: TeamRole } | null;
+}
+
+/** Super admin, whichever field the backend spells it with. */
+export function isSuperAdmin(me: CurrentUser | null | undefined): boolean {
+  return !!(me?.is_super_admin ?? me?.is_admin);
+}
+
+/** Admin of their own team (not a super admin). */
+export function isTeamAdmin(me: CurrentUser | null | undefined): boolean {
+  return !isSuperAdmin(me) && me?.team?.role === "admin";
 }
 
 /**
@@ -311,6 +327,69 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   } catch {
     return null;
   }
+}
+
+// ─── Teams ────────────────────────────────────────────────────────────────────
+
+export interface TeamMember {
+  sub: string;
+  name: string | null;
+  email: string | null;
+  role?: TeamRole;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  members: TeamMember[];
+  created_at?: string;
+}
+
+export interface UserInfo {
+  sub: string;
+  name: string | null;
+  email: string | null;
+  team_id: string | null;
+  team_name: string | null;
+  last_seen?: string | null;
+}
+
+/** Super admins get every team; everyone else their own. */
+export async function listTeams(): Promise<Team[]> {
+  return request<Team[]>("/teams");
+}
+
+export async function createTeam(name: string): Promise<Team> {
+  return request<Team>("/teams", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export async function renameTeam(id: string, name: string): Promise<Team> {
+  return request<Team>(`/teams/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ name }) });
+}
+
+/** Refused (409) while the team still owns team resources. */
+export async function deleteTeam(id: string): Promise<void> {
+  await request<void>(`/teams/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/**
+ * Add a user to a team — moving them out of any previous one — or change
+ * their role in it.
+ */
+export async function setTeamMember(teamId: string, sub: string, role?: TeamRole): Promise<Team> {
+  return request<Team>(`/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(sub)}`, {
+    method: "PUT",
+    body: JSON.stringify(role ? { role } : {}),
+  });
+}
+
+export async function removeTeamMember(teamId: string, sub: string): Promise<void> {
+  await request<void>(`/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(sub)}`, { method: "DELETE" });
+}
+
+/** Super admins: everyone. Team admins: users with no team plus their members. */
+export async function listUsers(): Promise<UserInfo[]> {
+  return request<UserInfo[]>("/users");
 }
 
 // ─── LLM providers ────────────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ import type {
 } from "@/lib/types";
 import { JOB_CATEGORIES } from "@/lib/types";
 import { dsFieldCls, dsFieldMonoCls } from "../fieldStyles";
+import { VisibilityBadge, scopeConflict, useUsageScope } from "../Visibility";
 import {
   AUTOMATION_MODES,
   CATEGORY_LABELS,
@@ -103,6 +104,9 @@ function PoolAgentCard({ agent, entry, readonly, onToggle, onChange }: {
 }) {
   const selected = !!entry;
   const badges = addonBadges(agent.addons);
+  // An agent this workflow's scope can't use can still be taken out of the
+  // pool (it may predate a visibility change), just not put in.
+  const conflict = scopeConflict(useUsageScope(), agent);
   const cats = entry?.categories ?? [];
   return (
     <div
@@ -117,7 +121,8 @@ function PoolAgentCard({ agent, entry, readonly, onToggle, onChange }: {
           type="checkbox"
           aria-label={`Use ${agent.name || agent.id}`}
           checked={selected}
-          disabled={readonly}
+          disabled={readonly || (!selected && !!conflict)}
+          title={conflict ?? undefined}
           onChange={onToggle}
           className="mt-1 accent-violet-500"
         />
@@ -125,6 +130,7 @@ function PoolAgentCard({ agent, entry, readonly, onToggle, onChange }: {
           <div className="flex items-baseline gap-2">
             <Bot className="w-3.5 h-3.5 text-violet-400 self-center" />
             <span className="text-sm font-medium text-slate-200">{agent.name || agent.id}</span>
+            <VisibilityBadge resource={agent} />
             <span className="text-[10px] font-mono text-slate-500">{agent.id}</span>
           </div>
           {agent.description ? (
