@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { X, Play, Loader2 } from "lucide-react";
 import { fetchWorkflows, submitWorkflow } from "@/lib/api";
+import { visibilitySuffix } from "./Visibility";
 import type { WorkflowDefinition, WorkflowRun } from "@/lib/types";
 
 interface Props {
@@ -95,7 +96,7 @@ export function SubmitWorkflowModal({ onSubmit, onClose }: Props) {
                 >
                   {workflows.map((w) => (
                     <option key={w.id} value={w.id}>
-                      {w.name}{w.visibility === "private" ? " · private" : ""}
+                      {w.name}{visibilitySuffix(w)}
                     </option>
                   ))}
                 </select>

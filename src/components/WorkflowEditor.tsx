@@ -41,7 +41,9 @@ import { DatasourceRiskBadge } from "./DatasourceRiskBadge";
 import { EventModal, EventNameConflictDialog, parseEventSchema } from "./EventModal";
 import { CodeEditor } from "./CodeEditor";
 import { ResourceEditorFrame, type EditorSurface } from "./ResourceEditorFrame";
-import { AccessSection, PrivateBadge, canEdit, useVisibilityDraft } from "./Visibility";
+import {
+  AccessSection, VisibilityBadge, canEdit, scopeConflict, useUsageScope, useVisibilityDraft, visibilitySuffix,
+} from "./Visibility";
 import { TYPE_ICONS as SHARED_TYPE_ICONS } from "./workflow-canvas/utils/typeIcons";
 import { WorkflowStepNode, SharedParallelNode, SharedSwitchNode, SharedJoinNode } from "./workflow-canvas/nodes";
 import { PvcAddonNode } from "./workflow-canvas/nodes/PvcAddonNode";
@@ -1326,6 +1328,7 @@ export function DatasourceAddonPanel({
 }) {
   const { datasources, isLoading } = useDatasources();
   const [opFilter, setOpFilter] = useState("");
+  const scope = useUsageScope();
 
   // pubsub sources carry no operations, so there is nothing to grant on one.
   const selectable = useMemo(
@@ -1423,11 +1426,14 @@ export function DatasourceAddonPanel({
           <option value="">
             {isLoading ? "loading…" : "— select a datasource —"}
           </option>
-          {selectable.map((ds) => (
-            <option key={ds.id} value={ds.id}>
-              {ds.name || ds.id} ({(ds.operations ?? []).length}){ds.visibility === "private" ? " · private" : ""}
-            </option>
-          ))}
+          {selectable.map((ds) => {
+            const conflict = scopeConflict(scope, ds);
+            return (
+              <option key={ds.id} value={ds.id} disabled={!!conflict && ds.id !== sourceId} title={conflict ?? undefined}>
+                {ds.name || ds.id} ({(ds.operations ?? []).length}){visibilitySuffix(ds)}{conflict ? " (not usable here)" : ""}
+              </option>
+            );
+          })}
         </select>
       </PropField>
 
@@ -3508,6 +3514,10 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (access.missingTeam) {
+      setError("Choose the team this belongs to.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -4471,6 +4481,10 @@ export function DatasourceModal({ datasource, onSave, onClose, surface = "modal"
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (access.missingTeam) {
+      setError("Choose the team this belongs to.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -5194,6 +5208,9 @@ export function DatasourceEditor(props: Omit<DatasourceModalProps, "surface">) {
 
 function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddon }: { onAdd: (type: ApiStepType) => void; onAddAgent: (agent: AgentDefinition) => void; onAddDatasource?: (ds: DataSourceDefinition) => void; onAddEvent?: (ev: EventDefinition) => void; onAddAddon?: (kind: "slack" | "pvc" | "mcp" | "tools" | "s3" | "datasource") => void }) {
   const [tab, setTab] = useState<"nodes" | "operators" | "agents">("nodes");
+  // What the workflow being edited may use — the rest stays listed (to edit)
+  // but cannot be added.
+  const scope = useUsageScope();
   const [agents, setAgents]               = useState<AgentDefinition[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
   const [agentsError, setAgentsError]     = useState<string | null>(null);
@@ -5406,7 +5423,7 @@ function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddo
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1 min-w-0">
                             <p className="text-xs font-medium text-slate-200 truncate">{ds.name || ds.id}</p>
-                            <PrivateBadge resource={ds} />
+                            <VisibilityBadge resource={ds} />
                           </div>
                           <p className="text-[10px] text-slate-500 truncate">
                             {ds.base_url || ds.kind}
@@ -5419,8 +5436,9 @@ function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddo
                           kind={ds.kind}
                         />
                         <button onClick={() => onAddDatasource?.(ds)}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-cyan-700 text-slate-400 hover:text-white transition-all shrink-0"
-                          title="Add to canvas">
+                          disabled={!!scopeConflict(scope, ds)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-cyan-700 text-slate-400 hover:text-white transition-all shrink-0 disabled:hover:bg-transparent disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={scopeConflict(scope, ds) ?? "Add to canvas"}>
                           <Plus className="w-3 h-3" />
                         </button>
                         <button onClick={() => setDsModal({ datasource: ds })}
@@ -5518,13 +5536,14 @@ function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddo
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1 min-w-0">
                           <p className="text-xs font-medium text-slate-200 truncate">{a.name || a.id}</p>
-                          <PrivateBadge resource={a} />
+                          <VisibilityBadge resource={a} />
                         </div>
                         <p className="text-[10px] text-slate-500 truncate">{a.default_runtime}</p>
                       </div>
                       <button onClick={() => onAddAgent(a)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-violet-700 text-slate-400 hover:text-white transition-all shrink-0"
-                        title="Add to canvas">
+                        disabled={!!scopeConflict(scope, a)}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-violet-700 text-slate-400 hover:text-white transition-all shrink-0 disabled:hover:bg-transparent disabled:opacity-30 disabled:cursor-not-allowed"
+                        title={scopeConflict(scope, a) ?? "Add to canvas"}>
                         <Plus className="w-3 h-3" />
                       </button>
                       <button onClick={() => setAgentModal({ agent: a })}

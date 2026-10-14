@@ -40,7 +40,8 @@ import { newDynamicWorkflow } from "./dynamic/dynamicWorkflow";
 import { SubmitWorkflowModal } from "./SubmitWorkflowModal";
 import { ChatPanel } from "./ChatPanel";
 import { ScriptEditor, type ScriptDraft } from "./ScriptEditor";
-import { AccessSection, PrivateBadge, useVisibilityDraft } from "./Visibility";
+import { AccessSection, TeamTag, UsageScopeProvider, VisibilityBadge, useCurrentUser, useVisibilityDraft } from "./Visibility";
+import { TeamsPanel } from "./panels/TeamsPanel";
 import { EventEditor, emptyEventDraft, eventToDraft, type EventDraft } from "./EventEditor";
 import { DockRail, PanelShell, PANEL_ORDER, type PanelId } from "./panels/dock";
 import { AgentsPanel } from "./panels/AgentsPanel";
@@ -64,6 +65,8 @@ import {
   getDatasource,
   getEvent,
   getScript,
+  isSuperAdmin,
+  isTeamAdmin,
   type ScriptDefinition,
   type EventDefinition,
   type AgentDefinition,
@@ -79,8 +82,14 @@ import type {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** The ownership fields of a resource, and nothing else. */
+/** Panels hidden from everyone who can't manage a team. */
+const TEAMS_HIDDEN = new Set<PanelId>(["teams"]);
+
 function ownershipOf(r: Ownership): Ownership {
-  return { visibility: r.visibility, owner_id: r.owner_id, owner_name: r.owner_name, can_edit: r.can_edit };
+  return {
+    visibility: r.visibility, owner_id: r.owner_id, owner_name: r.owner_name,
+    team_id: r.team_id, team_name: r.team_name, can_edit: r.can_edit,
+  };
 }
 
 /** Convert a raw API workflow definition to the editable format. */
@@ -316,6 +325,9 @@ export function Dashboard() {
   // it: the editor owns the definition, and visibility is not part of the graph.
   const [wfOwnership, setWfOwnership] = useState<Ownership | null>(null);
   const wfAccess = useVisibilityDraft(wfOwnership, !!editingWorkflow?.isNew);
+  // Teams are managed by super admins (all of them) and team admins (their own).
+  const me = useCurrentUser();
+  const canManageTeams = isSuperAdmin(me) || isTeamAdmin(me);
 
   // ── Script library state ──────────────────────────────────────────────────
   const [scriptDraft, setScriptDraft] = useState<ScriptDraft | null>(null);
@@ -539,6 +551,10 @@ export function Dashboard() {
 
   // ── Save (create or update) ───────────────────────────────────────────────
   const handleSaveWorkflow = useCallback(async (updated: EditableWorkflowDefinition) => {
+    if (wfAccess.missingTeam) {
+      setSaveError("Choose the team this workflow belongs to.");
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -580,7 +596,7 @@ export function Dashboard() {
     } finally {
       setSaving(false);
     }
-  }, [loadWorkflowList, wfAccess.payload]);
+  }, [loadWorkflowList, wfAccess.payload, wfAccess.missingTeam]);
 
   // ── Enable / disable workflow ─────────────────────────────────────────────
   // The card flips immediately and rolls back if the PUT fails, matching how the
@@ -826,6 +842,8 @@ export function Dashboard() {
             reloadToken={eventsToken}
           />
         );
+      case "teams":
+        return <TeamsPanel key={id} me={me} onClose={() => closePanel(id)} />;
       case "library":
         return (
           <LibraryPanel
@@ -888,15 +906,18 @@ export function Dashboard() {
             </div>
           )}
           <div className="flex-1 min-h-0 flex flex-col">
-            <WorkflowEditor
-              key={editingWorkflow.id}
-              workflow={editingWorkflow}
-              onSave={handleSaveWorkflow}
-              onCancel={() => { setEditingWorkflow(null); setCenter(null); }}
-              saving={saving}
-              saveError={saveError}
-              readonly={editingWorkflow.readonly}
-            />
+            {/* Pickers inside the editor only offer what this workflow's scope may use. */}
+            <UsageScopeProvider scope={wfAccess.scope}>
+              <WorkflowEditor
+                key={editingWorkflow.id}
+                workflow={editingWorkflow}
+                onSave={handleSaveWorkflow}
+                onCancel={() => { setEditingWorkflow(null); setCenter(null); }}
+                saving={saving}
+                saveError={saveError}
+                readonly={editingWorkflow.readonly}
+              />
+            </UsageScopeProvider>
           </div>
         </div>
       ) : (
@@ -975,10 +996,16 @@ export function Dashboard() {
           runs: pendingApprovals > 0 ? pendingApprovals : undefined,
           approvals: pendingDeletions > 0 ? pendingDeletions : undefined,
         }}
-        footer={<BackendHealthIndicator compact />}
+        hidden={canManageTeams ? undefined : TEAMS_HIDDEN}
+        footer={
+          <div className="flex flex-col items-center gap-2">
+            <TeamTag me={me} />
+            <BackendHealthIndicator compact />
+          </div>
+        }
       />
 
-      {PANEL_ORDER.filter((id) => openPanels.has(id)).map(renderPanel)}
+      {PANEL_ORDER.filter((id) => openPanels.has(id) && (id !== "teams" || canManageTeams)).map(renderPanel)}
 
       {/* ── Centre ─────────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-hidden flex flex-col min-w-0">
@@ -1036,7 +1063,7 @@ export function WorkflowDefinitionCard({ workflow, selected, loading, hidden, di
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
               <p className="text-xs font-semibold text-slate-200 truncate">{workflow.name}</p>
-              <PrivateBadge resource={workflow} />
+              <VisibilityBadge resource={workflow} />
             </div>
             {workflow.description && (
               <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">

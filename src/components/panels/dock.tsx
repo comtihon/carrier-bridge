@@ -2,13 +2,13 @@
 
 import { clsx } from "clsx";
 import {
-  BotMessageSquare, Database, Bot, Library, ListOrdered, Radio, ShieldAlert, Workflow, X,
+  BotMessageSquare, Database, Bot, Library, ListOrdered, Radio, ShieldAlert, Users, Workflow, X,
 } from "lucide-react";
 
 /** Every panel the left dock can show. Multiple can be open at once. */
 export type PanelId =
   | "copilot" | "runs" | "approvals" | "workflows"
-  | "agents" | "datasources" | "events" | "library";
+  | "agents" | "datasources" | "events" | "library" | "teams";
 
 export const PANEL_META: Record<PanelId, {
   label: string;
@@ -23,25 +23,28 @@ export const PANEL_META: Record<PanelId, {
   datasources: { label: "Datasources", icon: Database,         accent: "text-cyan-400" },
   events:      { label: "Events",      icon: Radio,            accent: "text-indigo-400" },
   library:     { label: "Library",     icon: Library,          accent: "text-amber-400" },
+  teams:       { label: "Teams",       icon: Users,            accent: "text-emerald-400" },
 };
 
 export const PANEL_ORDER: PanelId[] = [
   // Approvals sits next to Runs: a held deletion is a run that stopped, and
   // the badge on it is the one number somebody needs to see without looking.
-  "copilot", "runs", "approvals", "workflows", "agents", "datasources", "events", "library",
+  "copilot", "runs", "approvals", "workflows", "agents", "datasources", "events", "library", "teams",
 ];
 
 /** The always-visible icon rail. Clicking an icon opens or closes its panel. */
-export function DockRail({ open, onToggle, badges, footer }: {
+export function DockRail({ open, onToggle, badges, footer, hidden }: {
   open: Set<PanelId>;
   onToggle: (id: PanelId) => void;
   badges?: Partial<Record<PanelId, number>>;
   /** Pinned to the bottom of the rail — used for the backend health dot. */
   footer?: React.ReactNode;
+  /** Panels the caller has no use for (Teams, for anyone but admins). */
+  hidden?: Set<PanelId>;
 }) {
   return (
     <div className="w-11 shrink-0 flex flex-col items-center gap-1 py-2 border-r border-slate-800 bg-slate-900/70">
-      {PANEL_ORDER.map((id) => {
+      {PANEL_ORDER.filter((id) => !hidden?.has(id)).map((id) => {
         const { label, icon: Icon, accent } = PANEL_META[id];
         const isOpen = open.has(id);
         const badge = badges?.[id];

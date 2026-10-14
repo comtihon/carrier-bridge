@@ -449,7 +449,13 @@ export interface RejectRequest {
 
 // ─── Ownership & visibility ──────────────────────────────────────────────────
 
-export type Visibility = "public" | "private";
+/**
+ * Scope of a resource, broadest first: everyone, the owner's team, the owner.
+ * A resource may only use resources of the same or broader scope (and a team
+ * resource only its own team's), so nothing can depend on what some of its
+ * viewers cannot see.
+ */
+export type Visibility = "public" | "team" | "private";
 
 /**
  * Who a user-created resource belongs to and who else may see it.
@@ -463,6 +469,9 @@ export interface Ownership {
   visibility?: Visibility;
   owner_id?: string | null;
   owner_name?: string | null;
+  /** The team a `team` resource belongs to. */
+  team_id?: string | null;
+  team_name?: string | null;
   can_edit?: boolean;
 }
 
