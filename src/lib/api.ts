@@ -352,6 +352,27 @@ export interface UserInfo {
   team_id: string | null;
   team_name: string | null;
   last_seen?: string | null;
+  /** The user's team and role in it; newer backends send this instead of team_id/team_name. */
+  team?: { id: string; name: string; role?: TeamRole } | null;
+  /** System-wide admin, granted by the identity provider's roles — not editable here. */
+  is_super_admin?: boolean;
+  /** Roles from the identity provider (and the login script, if one is set). */
+  roles?: string[];
+}
+
+/** One user row whichever shape the backend sends: `team` object or flat `team_id`/`team_name`. */
+function normalizeUser(raw: Partial<UserInfo> & { sub: string }): UserInfo {
+  const team = raw.team !== undefined
+    ? raw.team
+    : raw.team_id ? { id: raw.team_id, name: raw.team_name ?? raw.team_id } : null;
+  return {
+    ...raw,
+    name: raw.name ?? null,
+    email: raw.email ?? null,
+    team: team ?? null,
+    team_id: team?.id ?? null,
+    team_name: team?.name ?? null,
+  };
 }
 
 /** Super admins get every team; everyone else their own. */
@@ -389,7 +410,72 @@ export async function removeTeamMember(teamId: string, sub: string): Promise<voi
 
 /** Super admins: everyone. Team admins: users with no team plus their members. */
 export async function listUsers(): Promise<UserInfo[]> {
-  return request<UserInfo[]>("/users");
+  const rows = await request<Array<Partial<UserInfo> & { sub: string }>>("/users");
+  return rows.map(normalizeUser);
+}
+
+/** Super admins: put a user in a team (moving them out of any other) or, with `null`, in none. */
+export async function setUserTeam(sub: string, teamId: string | null, role: TeamRole = "member"): Promise<void> {
+  await request<unknown>(`/users/${encodeURIComponent(sub)}/team`, {
+    method: "PUT",
+    body: JSON.stringify({ team_id: teamId, role }),
+  });
+}
+
+/** Super admins: forget a stored user. They come back on their next login. */
+export async function deleteUser(sub: string): Promise<void> {
+  await request<void>(`/users/${encodeURIComponent(sub)}`, { method: "DELETE" });
+}
+
+// ─── Login script ─────────────────────────────────────────────────────────────
+
+/**
+ * Where the login script comes from: the deployment's config (read-only
+ * here), the database (edited here), or nowhere (disabled).
+ */
+export type LoginScriptSource = "config" | "db" | "none";
+
+export interface LoginScript {
+  source: LoginScriptSource;
+  editable: boolean;
+  script: string | null;
+  timeout_ms: number;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export interface LoginScriptTestResult {
+  ok: boolean;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  duration_ms: number;
+}
+
+export async function getLoginScript(): Promise<LoginScript> {
+  return request<LoginScript>("/auth/login-script");
+}
+
+/**
+ * Store the login script; `null` (or an empty one) disables it. A script that
+ * does not compile comes back as 400 with the reason, a config-managed one as 409.
+ */
+export async function saveLoginScript(script: string | null): Promise<LoginScript> {
+  return request<LoginScript>("/auth/login-script", {
+    method: "PUT",
+    body: JSON.stringify({ script: script && script.trim() ? script : null }),
+  });
+}
+
+/** Run a script (the given one, else the stored one) against sample claims without saving. */
+export async function testLoginScript(payload: {
+  script?: string;
+  claims: Record<string, unknown>;
+  sub?: string;
+}): Promise<LoginScriptTestResult> {
+  return request<LoginScriptTestResult>("/auth/login-script/test", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 // ─── LLM providers ────────────────────────────────────────────────────────────

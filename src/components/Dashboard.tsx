@@ -42,6 +42,7 @@ import { ChatPanel } from "./ChatPanel";
 import { ScriptEditor, type ScriptDraft } from "./ScriptEditor";
 import { AccessSection, TeamTag, UsageScopeProvider, VisibilityBadge, useCurrentUser, useVisibilityDraft } from "./Visibility";
 import { TeamsPanel } from "./panels/TeamsPanel";
+import { AdminView, type AdminTab } from "./admin/AdminView";
 import { EventEditor, emptyEventDraft, eventToDraft, type EventDraft } from "./EventEditor";
 import { DockRail, PanelShell, PANEL_ORDER, type PanelId } from "./panels/dock";
 import { AgentsPanel } from "./panels/AgentsPanel";
@@ -259,7 +260,7 @@ function useHiddenWorkflows() {
 
 /** Which editor the centre pane shows. */
 type CenterView =
-  | "run" | "workflow" | "script" | "event" | "agent" | "datasource" | "approval" | null;
+  | "run" | "workflow" | "script" | "event" | "agent" | "datasource" | "approval" | "admin" | null;
 
 export function Dashboard() {
   const { hidden: hiddenWorkflows, toggle: toggleHiddenWorkflow } = useHiddenWorkflows();
@@ -328,6 +329,9 @@ export function Dashboard() {
   // Teams are managed by super admins (all of them) and team admins (their own).
   const me = useCurrentUser();
   const canManageTeams = isSuperAdmin(me) || isTeamAdmin(me);
+  // Users and the login script: super admins only, in the centre pane.
+  const [adminTab, setAdminTab] = useState<AdminTab>("users");
+  const openAdmin = useCallback((tab: AdminTab) => { setAdminTab(tab); setCenter("admin"); }, []);
 
   // ── Script library state ──────────────────────────────────────────────────
   const [scriptDraft, setScriptDraft] = useState<ScriptDraft | null>(null);
@@ -843,7 +847,7 @@ export function Dashboard() {
           />
         );
       case "teams":
-        return <TeamsPanel key={id} me={me} onClose={() => closePanel(id)} />;
+        return <TeamsPanel key={id} me={me} onClose={() => closePanel(id)} onOpenAdmin={openAdmin} />;
       case "library":
         return (
           <LibraryPanel
@@ -871,6 +875,9 @@ export function Dashboard() {
       ) : (
         <EmptyCenter onNewRun={() => setShowModal(true)} />
       );
+    }
+    if (center === "admin" && isSuperAdmin(me)) {
+      return <AdminView me={me} tab={adminTab} onTabChange={setAdminTab} onClose={() => setCenter(null)} />;
     }
     if (center === "approval") {
       return approvalCase ? (
