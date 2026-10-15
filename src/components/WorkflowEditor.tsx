@@ -33,6 +33,8 @@ import { listAgents, getAgent, createAgent, updateAgent, updateAgentAddons, dele
 import { BACKEND_URL } from "@/lib/config";
 import { PythonStepFields } from "./PythonStepFields";
 import { DataStepFields, dataStepProblem } from "./DataStepFields";
+import { CombinedDatasourceFields } from "./CombinedDatasourceFields";
+import { combinedPartsProblem } from "@/lib/combinedDatasource";
 import { dsFieldCls, dsFieldMonoCls } from "./fieldStyles";
 import { GoogleSheetsPanel } from "./GoogleSheetsPanel";
 import { SheetBindingsPanel } from "./SheetBindingsPanel";
@@ -81,6 +83,7 @@ export const TYPE_LABELS: Record<string, string> = {
   python:           "Python",
   "langgraph-agent":"Agent",
   data_source:      "Data Source",
+  combined_datasource: "Combined Datasource",
   data:             "Data",
   join:             "Join (And)",
   proceed_or:       "Proceed (Or)",
@@ -118,6 +121,7 @@ const PALETTE_GROUPS: Array<{ label: string; items: Array<{ type: ApiStepType; l
       { type: "http_call", label: "HTTP Call"    },
       { type: "slack",     label: "Slack"        },
       { type: "data",      label: "Data"         },
+      { type: "combined_datasource", label: "Combined Datasource" },
       { type: "workflow",  label: "Sub-Workflow" },
     ],
   },
@@ -266,6 +270,16 @@ export function configToApiStep(config: EditableNodeConfig): Record<string, unkn
       if (config.params && Object.keys(config.params).length) step.params = config.params;
       if (config.output_key) step.output_key = config.output_key;
       break;
+    case "combined_datasource": {
+      // Parts are saved exactly as edited — unknown keys included — so the
+      // backend's part schema can grow without the editor dropping fields.
+      const problem = combinedPartsProblem(config.parts, config.output_part);
+      if (problem) throw new Error(`Step "${config.id}": ${problem}`);
+      step.parts = config.parts ?? [];
+      if (config.output_part) step.output = config.output_part;
+      if (config.output_key) step.output_key = config.output_key;
+      break;
+    }
     case "data": {
       // A `data` step is a list of named files and nothing else — no
       // output_key, because it writes nothing back into state.
@@ -354,7 +368,11 @@ export function apiStepToConfig(step: Record<string, unknown>): EditableNodeConf
     user_template:        step.user_template as string | undefined,
     output_key:           step.output_key as string | undefined,
     output_mapping:       step.output_mapping as Record<string, string> | undefined,
-    output_fields:        step.output as StructuredOutputField[] | undefined,
+    // `output` is a field list on llm_structured but a part id on
+    // combined_datasource — only an array is a field list.
+    output_fields:        Array.isArray(step.output) ? step.output as StructuredOutputField[] : undefined,
+    output_part:          step.type === "combined_datasource" && typeof step.output === "string" ? step.output : undefined,
+    parts:                Array.isArray(step.parts) ? step.parts as EditableNodeConfig["parts"] : undefined,
     fail_if_false:        step.fail_if_false as string[] | undefined,
     bind_mcp_tools:       step.bind_mcp_tools as boolean | undefined,
     max_iterations:       step.max_iterations as number | undefined,
@@ -2675,6 +2693,16 @@ function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTog
                 className={`${inputCls} font-mono`} />
             </PropField>
           </>
+        )}
+
+        {/* ── Combined Datasource ────────────────────────────────────── */}
+        {config.type === "combined_datasource" && (
+          <CombinedDatasourceFields
+            key={node.id}
+            config={config}
+            onChange={(patch) => onChange(node.id, patch)}
+            readonly={!!readonly}
+          />
         )}
 
         {/* ── Parallel ───────────────────────────────────────────────── */}
@@ -5993,6 +6021,7 @@ function WorkflowEditorInner({ workflow, onSave, onCancel, saving, saveError, re
         id, type, name: label,
         // Python steps are sandboxed unless the author opts out.
         ...(type === "python" ? { sandbox: true, sandbox_runtime: "local" as const } : {}),
+        ...(type === "combined_datasource" ? { parts: [] } : {}),
       };
       setNodes((nds) => [...nds, configToRFNode(config, viewportCenter(), readonly ? undefined : deleteNodeCb)]);
       setSelectedNodeId(id);

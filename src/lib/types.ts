@@ -496,6 +496,53 @@ export interface WorkflowStepDefinition {
   status?: StepStatus;
   output?: Record<string, unknown>;
   error?: string | null;
+  /** combined_datasource only: per-part execution summary (absent on older backends). */
+  parts?: RunPartStatus[];
+  /** combined_datasource only: id of the part whose output became the step output. */
+  output_part?: string;
+}
+
+// ─── combined_datasource ─────────────────────────────────────────────────────
+
+/** Part kinds a `combined_datasource` step can hold, in execution order. */
+export type CombinedPartType = "data_source" | "python" | "combined_datasource";
+
+/**
+ * One part of a `combined_datasource` step. Parts run in order and can read
+ * earlier parts by id (params templates `{cand[ids]}`, python `parts["id"]`,
+ * `stream: <part id>`). Unknown keys are carried through untouched.
+ */
+export interface CombinedPart {
+  id: string;
+  type: CombinedPartType | string;
+  // data_source
+  source?: string;
+  operation?: string;
+  params?: Record<string, unknown>;
+  // python
+  script_id?: string;
+  code?: string;
+  stream?: string;
+  // nested combined_datasource
+  parts?: CombinedPart[];
+  output?: string;
+  [key: string]: unknown;
+}
+
+export type RunPartStatusValue = "finished" | "failed" | "skipped" | "running" | "pending";
+
+/** What a run reports for one part of a combined_datasource step. */
+export interface RunPartStatus {
+  id: string;
+  type?: string;
+  status?: RunPartStatusValue | string;
+  started_at?: string | null;
+  duration_ms?: number | null;
+  records?: number | null;
+  calls?: number | null;
+  error_count?: number | null;
+  errors?: string[] | null;
+  parts?: RunPartStatus[] | null;
 }
 
 // ─── Editable workflow types (editor ↔ backend API) ──────────────────────────
@@ -524,6 +571,7 @@ export type ApiStepType =
   | "switch"
   | "langgraph-agent"
   | "data_source"
+  | "combined_datasource"
   | "data"
   | "dynamic"
   | "dynamic_gate";
@@ -653,6 +701,11 @@ export interface EditableNodeConfig {
    * executor drives it; a step says how much it wants via `limit`.
    */
   params?: Record<string, unknown>;
+  // ── combined_datasource ──────────────────────────────────────────────────
+  /** Ordered parts, saved back exactly as loaded/edited. */
+  parts?: CombinedPart[];
+  /** API `output`: the part whose output becomes the step output (default: last). */
+  output_part?: string;
 
   // ── data ─────────────────────────────────────────────────────────────────
   /** What this step makes downloadable. It reads state and changes nothing. */
