@@ -6,7 +6,7 @@
  * workflow it happens to be edited from.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { SWRConfig } from "swr";
 
 vi.mock("@/lib/api", async () => {
@@ -86,6 +86,25 @@ describe("datasource addon scope", () => {
     await waitFor(() => expect(option(/^Alpha CRM/)).toBeDisabled());
     expect(option(/^Open/)).toBeEnabled();
     expect(option(/^Mine/)).toBeDisabled();
+  });
+
+  it("keeps the agent's scope when the current user loads after the agent", async () => {
+    // The caller resolving late must not drop the agent's scope back to
+    // "unknown" (which unblocks everything) nor refetch the agent.
+    let resolveMe!: (u: Awaited<ReturnType<typeof api.getCurrentUser>>) => void;
+    vi.mocked(api.getCurrentUser).mockReturnValue(new Promise((r) => { resolveMe = r; }));
+    renderPanel({ visibility: "public", teamId: null }, "planner");
+    await waitFor(() => expect(option(/^Beta CRM/)).toBeDisabled());
+    expect(option(/^Mine/)).toBeDisabled();
+
+    resolveMe({
+      sub: "u-me", name: "Me", is_admin: false, auth_enabled: true, team: { id: "t-alpha", name: "Alpha", role: "member" },
+    });
+    await act(async () => {});
+    expect(option(/^Beta CRM/)).toBeDisabled();
+    expect(option(/^Mine/)).toBeDisabled();
+    expect(option(/^Alpha CRM/)).toBeEnabled();
+    expect(api.getAgent).toHaveBeenCalledTimes(1);
   });
 
   it("uses the workflow's scope when no agent is attached", async () => {
