@@ -804,7 +804,41 @@ export interface DataSourceOperation {
 
 export type DataSourceKind = "http" | "graphql";
 
-export interface DataSourceDefinition extends Ownership {
+export type GrantAccess = "read" | "read_write";
+export type GranteeType = "user" | "workflow";
+
+/** Access to a datasource for a user or workflow its visibility leaves out. */
+export interface DataSourceGrant {
+  id: string;
+  grantee_type: GranteeType;
+  grantee_id: string;
+  /** Name at grant time; null for a workflow the granter cannot see. */
+  grantee_name?: string | null;
+  access: GrantAccess;
+  granted_by?: string | null;
+  granted_by_name?: string | null;
+  granted_at?: string | null;
+}
+
+/** Who the caller could grant a datasource to. */
+export interface GrantCandidates {
+  users: { id: string; name: string | null; email: string | null }[];
+  workflows: { id: string; name: string; owner_name: string | null; visibility: Visibility }[];
+}
+
+/** Grant fields a datasource read carries (absent on backends without grants). */
+export interface DataSourceSharing {
+  /** Only for callers who may share it. */
+  grants?: DataSourceGrant[];
+  /** Whether the caller may grant and revoke. */
+  can_share?: boolean;
+  /** The caller's own user grant, if that is how they see it. */
+  granted_access?: GrantAccess | null;
+  /** Set when listed for a workflow (`workflow_id`) the source is granted to. */
+  granted_to_workflow?: GrantAccess | null;
+}
+
+export interface DataSourceDefinition extends Ownership, DataSourceSharing {
   id: string;
   name: string;
   description: string | null;
@@ -845,8 +879,13 @@ export interface DataSourceUpdateRequest {
   visibility?: Visibility;
 }
 
-export async function listDatasources(): Promise<DataSourceDefinition[]> {
-  return request<DataSourceDefinition[]>("/datasources");
+/**
+ * Every datasource the caller can see. With `workflowId` — the workflow being
+ * edited — also the ones granted to that workflow, which it alone may use.
+ */
+export async function listDatasources(workflowId?: string | null): Promise<DataSourceDefinition[]> {
+  const query = workflowId ? `?workflow_id=${encodeURIComponent(workflowId)}` : "";
+  return request<DataSourceDefinition[]>(`/datasources${query}`);
 }
 
 /**
@@ -855,7 +894,7 @@ export async function listDatasources(): Promise<DataSourceDefinition[]> {
  * that make an imported OpenAPI source big are left behind.
  */
 export type DataSourceSummary =
-  Pick<DataSourceDefinition, "id" | "name" | "description" | "kind" | "base_url"> & Ownership & {
+  Pick<DataSourceDefinition, "id" | "name" | "description" | "kind" | "base_url"> & Ownership & DataSourceSharing & {
     operations: Pick<DataSourceOperation, "name" | "method">[];
   };
 
@@ -889,6 +928,32 @@ export async function updateDatasource(id: string, payload: DataSourceUpdateRequ
 
 export async function deleteDatasource(id: string): Promise<void> {
   return request<void>(`/datasources/${id}`, { method: "DELETE" });
+}
+
+export async function listDatasourceGrants(id: string): Promise<DataSourceGrant[]> {
+  return request<DataSourceGrant[]>(`/datasources/${encodeURIComponent(id)}/grants`);
+}
+
+export async function listDatasourceGrantCandidates(id: string): Promise<GrantCandidates> {
+  return request<GrantCandidates>(`/datasources/${encodeURIComponent(id)}/grants/candidates`);
+}
+
+/** Grant (or change the access of) a user or a workflow. */
+export async function grantDatasource(
+  id: string,
+  grant: { grantee_type: GranteeType; grantee_id: string; access: GrantAccess },
+): Promise<DataSourceGrant> {
+  return request<DataSourceGrant>(`/datasources/${encodeURIComponent(id)}/grants`, {
+    method: "POST",
+    body: JSON.stringify(grant),
+  });
+}
+
+export async function revokeDatasourceGrant(id: string, grantId: string): Promise<void> {
+  return request<void>(
+    `/datasources/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}`,
+    { method: "DELETE" },
+  );
 }
 
 // ─── Events (Pub/Sub topics workflows are triggered by) ───────────────────────

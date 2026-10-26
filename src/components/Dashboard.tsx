@@ -914,7 +914,7 @@ export function Dashboard() {
           )}
           <div className="flex-1 min-h-0 flex flex-col">
             {/* Pickers inside the editor only offer what this workflow's scope may use. */}
-            <UsageScopeProvider scope={wfAccess.scope}>
+            <UsageScopeProvider scope={wfAccess.scope && { ...wfAccess.scope, workflowId: editingWorkflow.isNew ? null : editingWorkflow.id }}>
               <WorkflowEditor
                 key={editingWorkflow.id}
                 workflow={editingWorkflow}

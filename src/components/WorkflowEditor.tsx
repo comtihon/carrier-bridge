@@ -38,13 +38,14 @@ import { combinedPartsProblem } from "@/lib/combinedDatasource";
 import { dsFieldCls, dsFieldMonoCls } from "./fieldStyles";
 import { GoogleSheetsPanel } from "./GoogleSheetsPanel";
 import { SheetBindingsPanel } from "./SheetBindingsPanel";
-import { RISK_BADGE_BASE_CLS, RISK_LEVEL_CLS, methodLevel } from "@/lib/datasourceRisk";
+import { RISK_BADGE_BASE_CLS, RISK_LEVEL_CLS, methodLevel, operationLevel } from "@/lib/datasourceRisk";
 import { DatasourceRiskBadge } from "./DatasourceRiskBadge";
 import { EventModal, EventNameConflictDialog, parseEventSchema } from "./EventModal";
 import { CodeEditor } from "./CodeEditor";
 import { ResourceEditorFrame, type EditorSurface } from "./ResourceEditorFrame";
+import { DatasourceGrants } from "./DatasourceGrants";
 import {
-  AccessSection, VisibilityBadge, canEdit, scopeConflict, useCurrentUser, useUsageScope, useVisibilityDraft,
+  AccessSection, VisibilityBadge, canEdit, grantedAccess, scopeConflict, useCurrentUser, useUsageScope, useVisibilityDraft,
   visibilitySuffix, type UsageScope,
 } from "./Visibility";
 import { TYPE_ICONS as SHARED_TYPE_ICONS } from "./workflow-canvas/utils/typeIcons";
@@ -1857,6 +1858,7 @@ function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTog
   // Shared SWR key with the canvas nodes' risk badges, so the operation picked
   // here and the badge shown on the node are reading the same operations.
   const { datasources: dsList } = useDatasources();
+  const usageScope = useUsageScope();
   // Shared with the canvas, so an event picked or created here immediately
   // relabels the node it is bound to.
   const { events: eventList, reload: reloadEvents } = useEvents();
@@ -2641,9 +2643,19 @@ function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTog
                 }}
                 className={inputCls}>
                 <option value="">— select operation —</option>
-                {(dsList.find((d) => d.id === config.source)?.operations ?? []).map((op) => (
-                  <option key={op.name} value={op.name}>{op.name}</option>
-                ))}
+                {(() => {
+                  const ds = dsList.find((d) => d.id === config.source);
+                  // Granted read-only: its writes would be refused on save.
+                  const readOnlyGrant = !!ds && grantedAccess(usageScope, ds) === "read";
+                  return (ds?.operations ?? []).map((op) => {
+                    const blocked = readOnlyGrant && operationLevel(op, ds?.kind) !== "read" && op.name !== config.operation;
+                    return (
+                      <option key={op.name} value={op.name} disabled={blocked}>
+                        {op.name}{blocked ? " (read-only access)" : ""}
+                      </option>
+                    );
+                  });
+                })()}
                 {config.operation && !(dsList.find((d) => d.id === config.source)?.operations ?? []).some((op) => op.name === config.operation) && (
                   <option value={config.operation}>{config.operation}</option>
                 )}
@@ -4627,8 +4639,13 @@ export function DatasourceModal({ datasource, onSave, onClose, surface = "modal"
       initialWidth={640}
       minWidth={420}
       readOnly={readOnly}
+      access={
+        <>
+          <AccessSection resource={datasource} isNew={!isEdit} draft={access} kind="datasource" />
+          {isEdit && <DatasourceGrants datasource={datasource} />}
+        </>
+      }
     >
-      <AccessSection resource={datasource} isNew={!isEdit} draft={access} kind="datasource" />
       {!isEdit && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-400">ID <span className="text-red-400">*</span></label>

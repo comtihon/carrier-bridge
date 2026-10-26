@@ -27,6 +27,7 @@ export function ResourceEditorFrame({
   initialWidth = 512,
   minWidth = 380,
   readOnly = false,
+  access,
   children,
 }: {
   surface: EditorSurface;
@@ -45,6 +46,12 @@ export function ResourceEditorFrame({
    * button lives outside the form and keeps working.
    */
   readOnly?: boolean;
+  /**
+   * Above the fields and outside `readOnly`: who can see and use the resource.
+   * Someone who may not edit it can still be the one who shares it (a team
+   * admin), so these controls decide their own enablement.
+   */
+  access?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [size, setSize] = useState({ w: initialWidth, h: 0 }); // h=0 means auto
@@ -73,9 +80,10 @@ export function ResourceEditorFrame({
   }
 
   const submit = readOnly ? (e: React.FormEvent) => e.preventDefault() : onSubmit;
-  const body = readOnly
+  const fields = readOnly
     ? <fieldset disabled className="space-y-4 min-w-0">{children}</fieldset>
     : children;
+  const body = access ? <>{access}{fields}</> : fields;
 
   if (surface === "center") {
     return (

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Database, Loader2, Plus, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
 import { deleteDatasource, listDatasourceSummaries, type DataSourceSummary } from "@/lib/api";
+import { ACCESS_LABEL } from "../DatasourceGrants";
 import { PanelShell } from "./dock";
 import { PrivateBadge, canEdit } from "../Visibility";
 import { DatasourceRiskBadge } from "../DatasourceRiskBadge";
@@ -96,6 +97,14 @@ export function DatasourcesPanel({
                   <div className="flex items-center gap-1.5 min-w-0">
                     <p className="text-xs font-semibold text-slate-200 truncate">{ds.name || ds.id}</p>
                     <PrivateBadge resource={ds} />
+                    {ds.granted_access && (
+                      <span
+                        title={`Shared with you — ${ACCESS_LABEL[ds.granted_access].toLowerCase()}`}
+                        className="shrink-0 rounded border border-sky-800 bg-sky-950/40 px-1 text-[9px] text-sky-300"
+                      >
+                        shared · {ds.granted_access === "read" ? "read" : "read/write"}
+                      </span>
+                    )}
                   </div>
                   <p className="text-[10px] text-slate-500 truncate mt-0.5">{ds.base_url || ds.kind}</p>
                   <p className="text-[10px] text-slate-600 mt-1 font-mono">{ds.id}</p>
