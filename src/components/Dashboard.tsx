@@ -41,6 +41,7 @@ import { SubmitWorkflowModal } from "./SubmitWorkflowModal";
 import { ChatPanel } from "./ChatPanel";
 import { ScriptEditor, type ScriptDraft } from "./ScriptEditor";
 import { AccessSection, TeamTag, UsageScopeProvider, VisibilityBadge, useCurrentUser, useVisibilityDraft } from "./Visibility";
+import { ResourceGrants } from "./ResourceGrants";
 import { TeamsPanel } from "./panels/TeamsPanel";
 import { AdminView, type AdminTab } from "./admin/AdminView";
 import { EventEditor, emptyEventDraft, eventToDraft, type EventDraft } from "./EventEditor";
@@ -77,7 +78,7 @@ import { effectiveStatus } from "@/lib/types";
 import { BACKEND_URL } from "@/lib/config";
 import type {
   ApprovalCaseSummary, WorkflowRun, EditableWorkflowDefinition, WorkflowDefinition,
-  EditableNodeConfig, Ownership, Visibility,
+  EditableNodeConfig, Ownership, Sharing, Visibility,
 } from "@/lib/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -86,10 +87,11 @@ import type {
 /** Panels hidden from everyone who can't manage a team. */
 const TEAMS_HIDDEN = new Set<PanelId>(["teams"]);
 
-function ownershipOf(r: Ownership): Ownership {
+function ownershipOf(r: Ownership & Sharing): Ownership & Sharing {
   return {
     visibility: r.visibility, owner_id: r.owner_id, owner_name: r.owner_name,
     team_id: r.team_id, team_name: r.team_name, can_edit: r.can_edit,
+    can_share: r.can_share, granted_access: r.granted_access,
   };
 }
 
@@ -324,7 +326,7 @@ export function Dashboard() {
   const [saveError, setSaveError]     = useState<string | null>(null);
   // Owner and visibility of the open workflow. Kept beside it rather than in
   // it: the editor owns the definition, and visibility is not part of the graph.
-  const [wfOwnership, setWfOwnership] = useState<Ownership | null>(null);
+  const [wfOwnership, setWfOwnership] = useState<(Ownership & Sharing) | null>(null);
   const wfAccess = useVisibilityDraft(wfOwnership, !!editingWorkflow?.isNew);
   // Teams are managed by super admins (all of them) and team admins (their own).
   const me = useCurrentUser();
@@ -910,11 +912,20 @@ export function Dashboard() {
           {wfAccess.supported && (
             <div className="px-4 py-2 border-b border-slate-800 bg-slate-900/40 shrink-0">
               <AccessSection resource={wfOwnership} isNew={!!editingWorkflow.isNew} draft={wfAccess} kind="workflow" />
+              {!editingWorkflow.isNew && wfOwnership && (
+                <div className="mt-2">
+                  <ResourceGrants
+                    key={editingWorkflow.id}
+                    kind="workflow"
+                    resource={{ ...wfOwnership, id: editingWorkflow.id }}
+                  />
+                </div>
+              )}
             </div>
           )}
           <div className="flex-1 min-h-0 flex flex-col">
             {/* Pickers inside the editor only offer what this workflow's scope may use. */}
-            <UsageScopeProvider scope={wfAccess.scope}>
+            <UsageScopeProvider scope={wfAccess.scope && { ...wfAccess.scope, workflowId: editingWorkflow.isNew ? null : editingWorkflow.id }}>
               <WorkflowEditor
                 key={editingWorkflow.id}
                 workflow={editingWorkflow}

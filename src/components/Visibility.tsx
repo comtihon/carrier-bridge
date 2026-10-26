@@ -5,7 +5,7 @@ import { Globe, LockKeyhole, Users } from "lucide-react";
 import { clsx } from "clsx";
 import {
   getCurrentUser, isSuperAdmin, listTeams,
-  type CurrentUser, type Ownership, type Team, type Visibility,
+  type CurrentUser, type DataSourceSharing, type GrantAccess, type Ownership, type Team, type Visibility,
 } from "@/lib/api";
 
 /**
@@ -184,7 +184,7 @@ function visibilityNote(visibility: Visibility, kind: string, team: string | nul
 export function AccessSection({
   resource, isNew, draft, kind,
 }: {
-  resource: Ownership | null | undefined;
+  resource: (Ownership & DataSourceSharing) | null | undefined;
   isNew: boolean;
   draft: ReturnType<typeof useVisibilityDraft>;
   /** "agent", "datasource"… — for the read-only note. */
@@ -192,6 +192,8 @@ export function AccessSection({
 }) {
   if (!draft.supported) return null;
   const editable = isNew || canEdit(resource);
+  // A read_write grantee may edit the content, never who can see it.
+  const scopeEditable = editable && (isNew || resource?.can_share !== false || !resource?.granted_access);
   const owner = !isNew && resource ? ownerLabel(resource, draft.me) : null;
   const ownTeam = draft.me?.team ?? null;
   // A super admin picks the team; anyone else's Team is their own team (or,
@@ -208,7 +210,7 @@ export function AccessSection({
         <VisibilityControl
           value={draft.visibility}
           onChange={draft.setVisibility}
-          disabled={!editable}
+          disabled={!scopeEditable}
           teamLabel={!draft.superAdmin && teamName ? teamName : "Team"}
           teamUnavailable={teamUnavailable}
           withTeam={draft.teamsSupported}
@@ -221,7 +223,7 @@ export function AccessSection({
           <select
             id="visibility-team"
             aria-label="Team"
-            disabled={!editable}
+            disabled={!scopeEditable}
             value={draft.teamId}
             onChange={(e) => draft.setTeamId(e.target.value)}
             className="rounded bg-slate-800 border border-slate-600 px-2 py-1 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -277,6 +279,11 @@ export function visibilitySuffix(resource: Ownership): string {
 export interface UsageScope {
   visibility: Visibility;
   teamId: string | null;
+  /**
+   * The workflow being edited, once it is saved: datasources granted to it
+   * are offered in its pickers (and nowhere else).
+   */
+  workflowId?: string | null;
 }
 
 const RANK: Record<Visibility, number> = { private: 0, team: 1, public: 2 };
@@ -288,8 +295,9 @@ const RANK: Record<Visibility, number> = { private: 0, team: 1, public: 2 };
  * broader scope, and a team resource only its own team's — so pickers can
  * say so up front. The backend still decides; an unknown side never blocks.
  */
-export function scopeConflict(scope: UsageScope | null | undefined, used: Ownership): string | null {
+export function scopeConflict(scope: UsageScope | null | undefined, used: Ownership & DataSourceSharing): string | null {
   if (!scope || !used.visibility) return null;
+  if (grantedAccess(scope, used)) return null;
   if (RANK[used.visibility] < RANK[scope.visibility]) {
     return scope.visibility === "public"
       ? `A public resource can only use public ones; this one is ${used.visibility}.`
@@ -298,6 +306,20 @@ export function scopeConflict(scope: UsageScope | null | undefined, used: Owners
   if (used.visibility === "team" && scope.teamId && used.team_id && used.team_id !== scope.teamId) {
     return `Belongs to another team (${used.team_name || used.team_id}); only the same team's resources can be used.`;
   }
+  return null;
+}
+
+/**
+ * The grant the resource being edited would use `used` through, or null when
+ * it needs none (or has none). A workflow grant covers that workflow; a user
+ * grant covers the grantee's private resources.
+ */
+export function grantedAccess(
+  scope: UsageScope | null | undefined, used: DataSourceSharing,
+): GrantAccess | null {
+  if (!scope) return null;
+  if (used.granted_to_workflow && scope.workflowId) return used.granted_to_workflow;
+  if (used.granted_access && scope.visibility === "private") return used.granted_access;
   return null;
 }
 

@@ -72,7 +72,7 @@ describe("datasource addon scope", () => {
   it("follows the agent's team scope, even inside a public workflow", async () => {
     renderPanel({ visibility: "public", teamId: null }, "planner");
     await waitFor(() => expect(option(/^Beta CRM/)).toBeDisabled());
-    expect(api.getAgent).toHaveBeenCalledWith("planner");
+    expect(api.getAgent).toHaveBeenCalledWith("planner", undefined);
     expect(option(/^Open/)).toBeEnabled();
     // Public workflow, but the grant is the team agent's: its team's source is fine…
     expect(option(/^Alpha CRM/)).toBeEnabled();

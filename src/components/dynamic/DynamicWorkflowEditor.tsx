@@ -201,13 +201,15 @@ export function DynamicWorkflowEditor({ workflow, onSave, onCancel, saving, save
   const [agents, setAgents] = useState<AgentDefinition[] | null>(null);
   const [agentsError, setAgentsError] = useState<string | null>(null);
 
+  // Agents granted to this workflow belong in its pool too.
+  const workflowId = useUsageScope()?.workflowId ?? null;
   useEffect(() => {
     let cancelled = false;
-    listAgents()
+    listAgents(workflowId)
       .then((a) => { if (!cancelled) setAgents(a); })
       .catch((e) => { if (!cancelled) setAgentsError(String(e?.message ?? e)); });
     return () => { cancelled = true; };
-  }, []);
+  }, [workflowId]);
 
   const slots = { ...DEFAULT_SLOTS, ...(cfg.jobs ?? {}) };
   const limits = { ...DEFAULT_LIMITS, ...(cfg.limits ?? {}) };

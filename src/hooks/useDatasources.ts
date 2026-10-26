@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import useSWR from "swr";
 import { listDatasources, type DataSourceDefinition } from "@/lib/api";
+import { useUsageScope } from "@/components/Visibility";
 
 /** Stable identity so the derived map is not rebuilt while the list loads. */
 const NO_DATASOURCES: DataSourceDefinition[] = [];
@@ -14,11 +15,15 @@ const NO_DATASOURCES: DataSourceDefinition[] = [];
  * there can be many such nodes on one graph — one SWR key means one request no
  * matter how many of them mount, and the editor's own list stays in agreement
  * with what the nodes show.
+ *
+ * Inside a saved workflow's editor the list also holds the datasources granted
+ * to that workflow — one key per workflow, so they never leak into another.
  */
 export function useDatasources() {
+  const workflowId = useUsageScope()?.workflowId ?? null;
   const { data, error, isLoading, mutate } = useSWR<DataSourceDefinition[]>(
-    "/datasources",
-    listDatasources,
+    workflowId ? ["/datasources", workflowId] : "/datasources",
+    () => listDatasources(workflowId),
     { revalidateOnFocus: false },
   );
 

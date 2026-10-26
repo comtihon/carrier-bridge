@@ -29,7 +29,7 @@ import { useLlmProviders } from "@/hooks/useLlmProviders";
 import { useEvents } from "@/hooks/useEvents";
 import { useDatasources } from "@/hooks/useDatasources";
 import { DatasourceParamsEditor } from "@/components/DatasourceParamsEditor";
-import { listAgents, getAgent, createAgent, updateAgent, updateAgentAddons, deleteAgent, listMcpIntegrations, listAgentTools, type AgentToolInfo, type AgentDefinition, type McpIntegration, listDatasources, createDatasource, updateDatasource, deleteDatasource, probeDatasource, tryDatasourceOperation, fetchDatasourceSchema, uploadDatasourceSchema, listConfigKeys, listServiceIdentities, getGoogleSheetsTemplate, DATASOURCE_SECRET_REDACTED, type GoogleSheetsTemplate, type DataSourceDefinition, type DataSourceKind, type DataSourceAuth, type DataSourceAuthWrite, type ServiceIdentitiesResponse, type DataSourceOperation, type DataSourceParamSpec, type DiscoveredSchema, type SchemaImportResult, type TryOperationDestructivePlan, listEvents, createEvent, updateEvent, deleteEvent, EventNameConflictError, type EventDefinition } from "@/lib/api";
+import { fetchWorkflows, listAgents, getAgent, createAgent, updateAgent, updateAgentAddons, deleteAgent, listMcpIntegrations, listAgentTools, type AgentToolInfo, type AgentDefinition, type McpIntegration, listDatasources, createDatasource, updateDatasource, deleteDatasource, probeDatasource, tryDatasourceOperation, fetchDatasourceSchema, uploadDatasourceSchema, listConfigKeys, listServiceIdentities, getGoogleSheetsTemplate, DATASOURCE_SECRET_REDACTED, type GoogleSheetsTemplate, type DataSourceDefinition, type DataSourceKind, type DataSourceAuth, type DataSourceAuthWrite, type ServiceIdentitiesResponse, type DataSourceOperation, type DataSourceParamSpec, type DiscoveredSchema, type SchemaImportResult, type TryOperationDestructivePlan, listEvents, createEvent, updateEvent, deleteEvent, EventNameConflictError, type EventDefinition } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/config";
 import { PythonStepFields } from "./PythonStepFields";
 import { DataStepFields, dataStepProblem } from "./DataStepFields";
@@ -38,13 +38,14 @@ import { combinedPartsProblem } from "@/lib/combinedDatasource";
 import { dsFieldCls, dsFieldMonoCls } from "./fieldStyles";
 import { GoogleSheetsPanel } from "./GoogleSheetsPanel";
 import { SheetBindingsPanel } from "./SheetBindingsPanel";
-import { RISK_BADGE_BASE_CLS, RISK_LEVEL_CLS, methodLevel } from "@/lib/datasourceRisk";
+import { RISK_BADGE_BASE_CLS, RISK_LEVEL_CLS, methodLevel, operationLevel } from "@/lib/datasourceRisk";
 import { DatasourceRiskBadge } from "./DatasourceRiskBadge";
 import { EventModal, EventNameConflictDialog, parseEventSchema } from "./EventModal";
 import { CodeEditor } from "./CodeEditor";
 import { ResourceEditorFrame, type EditorSurface } from "./ResourceEditorFrame";
+import { ResourceGrants } from "./ResourceGrants";
 import {
-  AccessSection, VisibilityBadge, canEdit, scopeConflict, useCurrentUser, useUsageScope, useVisibilityDraft,
+  AccessSection, VisibilityBadge, canEdit, grantedAccess, scopeConflict, useCurrentUser, useUsageScope, useVisibilityDraft,
   visibilitySuffix, type UsageScope,
 } from "./Visibility";
 import { TYPE_ICONS as SHARED_TYPE_ICONS } from "./workflow-canvas/utils/typeIcons";
@@ -1322,6 +1323,34 @@ function S3AddonPanel({ s3Bucket, s3Path, attachedTo, agentId, readonly, onChang
 // ─── Datasource Addon Panel ───────────────────────────────────────────────────
 
 /**
+ * Workflows a `workflow` step may call: the caller's own, plus — inside a saved
+ * workflow's editor — those granted to it (team A's workflow calling team B's).
+ */
+function SubWorkflowOptions({ id, exclude }: { id: string; exclude: string | null }) {
+  const scope = useUsageScope();
+  const [workflows, setWorkflows] = useState<{ id: string; name: string; granted: boolean }[]>([]);
+  useEffect(() => {
+    let live = true;
+    fetchWorkflows(scope?.workflowId)
+      .then((list) => {
+        if (!live) return;
+        setWorkflows(list
+          .filter((w) => w.id !== exclude)
+          .map((w) => ({ id: w.id, name: w.name, granted: !!w.granted_to_workflow })));
+      })
+      .catch(() => {/* free text still works */});
+    return () => { live = false; };
+  }, [scope?.workflowId, exclude]);
+  return (
+    <datalist id={id}>
+      {workflows.map((w) => (
+        <option key={w.id} value={w.id}>{w.name}{w.granted ? " (granted to this workflow)" : ""}</option>
+      ))}
+    </datalist>
+  );
+}
+
+/**
  * The two controls of a datasource grant: which datasource, and which of its
  * operations.
  *
@@ -1362,11 +1391,11 @@ export function DatasourceAddonPanel({
   useEffect(() => {
     if (!agentId) return;
     let live = true;
-    getAgent(agentId).then((def) => {
+    getAgent(agentId, workflowScope?.workflowId).then((def) => {
       if (live && def) setAgent({ id: agentId, def });
     }).catch(() => {/* unknown scope: don't block */});
     return () => { live = false; };
-  }, [agentId]);
+  }, [agentId, workflowScope?.workflowId]);
   const agentScope = useMemo<UsageScope | null>(() => {
     const a = agent && agent.id === agentId ? agent.def : null;
     if (!a?.visibility) return null;
@@ -1857,6 +1886,7 @@ function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTog
   // Shared SWR key with the canvas nodes' risk badges, so the operation picked
   // here and the badge shown on the node are reading the same operations.
   const { datasources: dsList } = useDatasources();
+  const usageScope = useUsageScope();
   // Shared with the canvas, so an event picked or created here immediately
   // relabels the node it is bound to.
   const { events: eventList, reload: reloadEvents } = useEvents();
@@ -2302,11 +2332,13 @@ function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTog
         {/* ── Sub-workflow ────────────────────────────────────────────── */}
         {config.type === "workflow" && (
           <>
-            <PropField label="Workflow ID">
+            <PropField label="Workflow ID" hint="your workflows, and those granted to this one">
               <input type="text" value={config.workflow_id ?? ""}
                 onChange={(e) => onChange(node.id, { workflow_id: e.target.value })}
                 placeholder="e.g. feature-flow"
+                list="sub-workflow-candidates"
                 className={`${inputCls} font-mono`} />
+              <SubWorkflowOptions id="sub-workflow-candidates" exclude={usageScope?.workflowId ?? null} />
             </PropField>
             <PropField label="Input Template">
               <input type="text" value={config.input_template ?? ""}
@@ -2641,9 +2673,19 @@ function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTog
                 }}
                 className={inputCls}>
                 <option value="">— select operation —</option>
-                {(dsList.find((d) => d.id === config.source)?.operations ?? []).map((op) => (
-                  <option key={op.name} value={op.name}>{op.name}</option>
-                ))}
+                {(() => {
+                  const ds = dsList.find((d) => d.id === config.source);
+                  // Granted read-only: its writes would be refused on save.
+                  const readOnlyGrant = !!ds && grantedAccess(usageScope, ds) === "read";
+                  return (ds?.operations ?? []).map((op) => {
+                    const blocked = readOnlyGrant && operationLevel(op, ds?.kind) !== "read" && op.name !== config.operation;
+                    return (
+                      <option key={op.name} value={op.name} disabled={blocked}>
+                        {op.name}{blocked ? " (read-only access)" : ""}
+                      </option>
+                    );
+                  });
+                })()}
                 {config.operation && !(dsList.find((d) => d.id === config.source)?.operations ?? []).some((op) => op.name === config.operation) && (
                   <option value={config.operation}>{config.operation}</option>
                 )}
@@ -3633,8 +3675,13 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
       initialWidth={512}
       minWidth={380}
       readOnly={readOnly}
+      access={
+        <>
+          <AccessSection resource={agent} isNew={!isEdit} draft={access} kind="agent" />
+          {isEdit && <ResourceGrants kind="agent" resource={agent} />}
+        </>
+      }
     >
-      <AccessSection resource={agent} isNew={!isEdit} draft={access} kind="agent" />
       {!isEdit && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-400">ID <span className="text-red-400">*</span></label>
@@ -4627,8 +4674,13 @@ export function DatasourceModal({ datasource, onSave, onClose, surface = "modal"
       initialWidth={640}
       minWidth={420}
       readOnly={readOnly}
+      access={
+        <>
+          <AccessSection resource={datasource} isNew={!isEdit} draft={access} kind="datasource" />
+          {isEdit && <ResourceGrants kind="datasource" resource={datasource} />}
+        </>
+      }
     >
-      <AccessSection resource={datasource} isNew={!isEdit} draft={access} kind="datasource" />
       {!isEdit && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-400">ID <span className="text-red-400">*</span></label>
@@ -5334,14 +5386,15 @@ function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddo
     setAgentsLoading(true);
     setAgentsError(null);
     try {
-      const list = await listAgents();
+      // Agents granted to this workflow are offered here, and only here.
+      const list = await listAgents(scope?.workflowId);
       setAgents(list);
     } catch (err) {
       setAgentsError(err instanceof Error ? err.message : "Failed to load agents");
     } finally {
       setAgentsLoading(false);
     }
-  }, []);
+  }, [scope?.workflowId]);
 
   const handleDeleteAgent = useCallback(async (id: string, name: string) => {
     if (!window.confirm(`Delete agent "${name}"? This cannot be undone.`)) return;

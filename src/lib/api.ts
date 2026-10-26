@@ -5,6 +5,10 @@ import type {
   RejectRequest,
   WorkflowDefinition,
   ApiWorkflowDefinition,
+  GrantAccess,
+  GranteeType,
+  ResourceGrant,
+  Sharing,
   RunTraceResponse,
   PaginatedRunsResponse,
   ApprovalCase,
@@ -15,7 +19,7 @@ import type {
   Visibility,
 } from "./types";
 
-export type { Ownership, Visibility } from "./types";
+export type { GrantAccess, GranteeType, Ownership, ResourceGrant, Sharing, Visibility } from "./types";
 
 import { BACKEND_URL } from "./config";
 import { getAccessToken } from "./oidc";
@@ -115,8 +119,16 @@ async function postFormWithDetail<T>(path: string, body: FormData): Promise<T> {
 
 // ─── Workflows ────────────────────────────────────────────────────────────────
 
-export async function fetchWorkflows(): Promise<WorkflowDefinition[]> {
-  return request<WorkflowDefinition[]>("/workflows");
+/**
+ * Workflows the caller can see. With `workflowId` — the workflow being edited
+ * — also the ones granted to it (that it may call), marked `granted_to_workflow`.
+ */
+export async function fetchWorkflows(workflowId?: string | null): Promise<WorkflowDefinition[]> {
+  return request<WorkflowDefinition[]>(`/workflows${workflowQuery(workflowId)}`);
+}
+
+function workflowQuery(workflowId?: string | null, sep: "?" | "&" = "?"): string {
+  return workflowId ? `${sep}workflow_id=${encodeURIComponent(workflowId)}` : "";
 }
 
 export async function submitWorkflow(
@@ -523,7 +535,7 @@ export type AgentAddonEntry =
    */
   | { type: "datasource"; source_id: string; allowed_operations: string[] };
 
-export interface AgentDefinition extends Ownership {
+export interface AgentDefinition extends Ownership, Sharing {
   id: string;
   name: string;
   description: string | null;
@@ -571,13 +583,14 @@ export interface AgentUpdateRequest {
   visibility?: Visibility;
 }
 
-export async function listAgents(): Promise<AgentDefinition[]> {
-  return request<AgentDefinition[]>("/agents");
+/** Every agent the caller can see; with `workflowId`, also those granted to it. */
+export async function listAgents(workflowId?: string | null): Promise<AgentDefinition[]> {
+  return request<AgentDefinition[]>(`/agents${workflowQuery(workflowId)}`);
 }
 
 /** What a list of agents draws: no `agent_input` (the system prompt), no addons. */
 export type AgentSummary =
-  Pick<AgentDefinition, "id" | "name" | "description" | "default_runtime"> & Ownership;
+  Pick<AgentDefinition, "id" | "name" | "description" | "default_runtime"> & Ownership & Sharing;
 
 /**
  * Agents without the parts only the editor reads.
@@ -589,8 +602,9 @@ export async function listAgentSummaries(): Promise<AgentSummary[]> {
   return request<AgentSummary[]>("/agents?view=summary");
 }
 
-export async function getAgent(id: string): Promise<AgentDefinition> {
-  return request<AgentDefinition>(`/agents/${id}`);
+/** One agent; `workflowId` also finds one granted to that workflow. */
+export async function getAgent(id: string, workflowId?: string | null): Promise<AgentDefinition> {
+  return request<AgentDefinition>(`/agents/${id}${workflowQuery(workflowId)}`);
 }
 
 export async function updateAgentAddons(id: string, addons: AgentAddonEntry[]): Promise<AgentDefinition> {
@@ -804,7 +818,18 @@ export interface DataSourceOperation {
 
 export type DataSourceKind = "http" | "graphql";
 
-export interface DataSourceDefinition extends Ownership {
+export type DataSourceGrant = ResourceGrant;
+
+/** Who the caller could grant a resource to. */
+export interface GrantCandidates {
+  users: { id: string; name: string | null; email: string | null }[];
+  workflows: { id: string; name: string; owner_name: string | null; visibility: Visibility }[];
+}
+
+/** Kept for callers from before agents and workflows had grants. */
+export type DataSourceSharing = Sharing;
+
+export interface DataSourceDefinition extends Ownership, Sharing {
   id: string;
   name: string;
   description: string | null;
@@ -845,8 +870,13 @@ export interface DataSourceUpdateRequest {
   visibility?: Visibility;
 }
 
-export async function listDatasources(): Promise<DataSourceDefinition[]> {
-  return request<DataSourceDefinition[]>("/datasources");
+/**
+ * Every datasource the caller can see. With `workflowId` — the workflow being
+ * edited — also the ones granted to that workflow, which it alone may use.
+ */
+export async function listDatasources(workflowId?: string | null): Promise<DataSourceDefinition[]> {
+  const query = workflowId ? `?workflow_id=${encodeURIComponent(workflowId)}` : "";
+  return request<DataSourceDefinition[]>(`/datasources${query}`);
 }
 
 /**
@@ -855,7 +885,7 @@ export async function listDatasources(): Promise<DataSourceDefinition[]> {
  * that make an imported OpenAPI source big are left behind.
  */
 export type DataSourceSummary =
-  Pick<DataSourceDefinition, "id" | "name" | "description" | "kind" | "base_url"> & Ownership & {
+  Pick<DataSourceDefinition, "id" | "name" | "description" | "kind" | "base_url"> & Ownership & Sharing & {
     operations: Pick<DataSourceOperation, "name" | "method">[];
   };
 
@@ -889,6 +919,43 @@ export async function updateDatasource(id: string, payload: DataSourceUpdateRequ
 
 export async function deleteDatasource(id: string): Promise<void> {
   return request<void>(`/datasources/${id}`, { method: "DELETE" });
+}
+
+/** What can be granted beyond its visibility. */
+export type GrantableKind = "datasource" | "agent" | "workflow";
+
+const GRANT_COLLECTION: Record<GrantableKind, string> = {
+  datasource: "datasources",
+  agent: "agents",
+  workflow: "workflows",
+};
+
+function grantsPath(kind: GrantableKind, id: string): string {
+  return `/${GRANT_COLLECTION[kind]}/${encodeURIComponent(id)}/grants`;
+}
+
+export async function listGrants(kind: GrantableKind, id: string): Promise<ResourceGrant[]> {
+  return request<ResourceGrant[]>(grantsPath(kind, id));
+}
+
+export async function listGrantCandidates(kind: GrantableKind, id: string): Promise<GrantCandidates> {
+  return request<GrantCandidates>(`${grantsPath(kind, id)}/candidates`);
+}
+
+/** Grant (or change the access of) a user or a workflow. */
+export async function grantAccess(
+  kind: GrantableKind,
+  id: string,
+  grant: { grantee_type: GranteeType; grantee_id: string; access: GrantAccess },
+): Promise<ResourceGrant> {
+  return request<ResourceGrant>(grantsPath(kind, id), {
+    method: "POST",
+    body: JSON.stringify(grant),
+  });
+}
+
+export async function revokeGrant(kind: GrantableKind, id: string, grantId: string): Promise<void> {
+  return request<void>(`${grantsPath(kind, id)}/${encodeURIComponent(grantId)}`, { method: "DELETE" });
 }
 
 // ─── Events (Pub/Sub topics workflows are triggered by) ───────────────────────
