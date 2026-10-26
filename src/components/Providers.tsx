@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getUserManager, login } from "@/lib/oidc";
+import { getUserManager, login, returnHash } from "@/lib/oidc";
 import { AUTH_ENABLED } from "@/lib/config";
 
 type AuthState = "loading" | "authenticated" | "redirecting";
@@ -16,12 +16,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
     async function initAuth() {
       if (window.location.pathname === "/callback") {
+        let hash = "";
         try {
-          await getUserManager().signinRedirectCallback();
+          const user = await getUserManager().signinRedirectCallback();
+          hash = returnHash(user?.state);
         } catch {
           // ignore — may have already been processed
         }
-        window.location.replace("/");
+        window.location.replace(`/${hash}`);
         return;
       }
 

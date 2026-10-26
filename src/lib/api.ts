@@ -539,7 +539,8 @@ export interface AgentDefinition extends Ownership, Sharing {
   id: string;
   name: string;
   description: string | null;
-  default_runtime: "local" | "docker" | "k8s";
+  /** "runner": the agent runs on a user's machine connected through acp-web-proxy. */
+  default_runtime: AgentRuntime;
   agent_input: Record<string, unknown>;
   image: string | null;
   helm_chart: string | null;
@@ -552,7 +553,11 @@ export interface AgentDefinition extends Ownership, Sharing {
   protocol?: "http-poll" | "acp";
   /** ACP only: agent name in the proxy config (pi, claude, codex…); null = proxy default. */
   acp_agent?: string | null;
+  /** Runner agents only: the machine it runs on; `acp_agent` names the agent there. */
+  runner_id?: string | null;
 }
+
+export type AgentRuntime = "local" | "docker" | "k8s" | "runner";
 
 export interface AgentCreateRequest {
   id: string;
@@ -566,6 +571,7 @@ export interface AgentCreateRequest {
   addons?: AgentAddonEntry[];
   protocol?: "http-poll" | "acp";
   acp_agent?: string | null;
+  runner_id?: string | null;
   visibility?: Visibility;
 }
 
@@ -580,6 +586,7 @@ export interface AgentUpdateRequest {
   addons?: AgentAddonEntry[];
   protocol?: "http-poll" | "acp";
   acp_agent?: string | null;
+  runner_id?: string | null;
   visibility?: Visibility;
 }
 
@@ -681,6 +688,130 @@ export async function agentReply(runId: string, answer: string): Promise<void> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ answer }),
+  });
+}
+
+// ─── Runners ──────────────────────────────────────────────────────────────────
+
+/**
+ * A machine connected through acp-web-proxy in dial mode: it dials carrier
+ * and offers its local ACP agents (Claude Code, Codex…). Owned like any other
+ * resource; private to whoever approved it unless shared.
+ */
+export interface Runner extends Ownership {
+  id: string;
+  name: string;
+  hostname: string;
+  os: string;
+  arch: string;
+  tz: string;
+  version: string;
+  /** ACP agents on the machine, by the name the proxy knows them. */
+  agents: string[];
+  default_agent: string | null;
+  labels: Record<string, string>;
+  online: boolean;
+  last_seen: string | null;
+  connected_at: string | null;
+  created_at: string | null;
+  approved_by_name: string | null;
+  /** Agents (by machine agent name) that hit their usage limit, and until when. */
+  limits: Record<string, RunnerLimit>;
+  /** Carrier agents that run on this machine. */
+  agent_definitions: Array<{ id: string; name: string; acp_agent: string | null }>;
+}
+
+export interface RunnerLimit {
+  /** When the limit resets; null when the agent did not say. */
+  until: string | null;
+  kind: string;
+  message: string;
+}
+
+/** A machine asking to be connected, as the approver sees it after typing its number. */
+export interface RunnerEnrollment {
+  id: string;
+  hostname: string;
+  os: string;
+  arch: string;
+  tz: string;
+  version: string;
+  agents: string[];
+  default_agent: string | null;
+  request_ip: string | null;
+  created_at: string | null;
+  expires_at: string | null;
+}
+
+export interface RunnerApproveRequest {
+  /** The number again: the enrollment id alone does not approve anything. */
+  code: string;
+  name?: string;
+  visibility?: Visibility;
+  team_id?: string;
+  /** Machine agents to add as carrier agents; omitted = backend default. */
+  agents?: string[];
+}
+
+export interface RunnerApproveResult {
+  runner: Runner;
+  agents: AgentDefinition[];
+}
+
+const RUNNERS = "/acp/runners";
+
+export async function listRunners(): Promise<Runner[]> {
+  return request<Runner[]>(RUNNERS);
+}
+
+export async function updateRunner(
+  id: string, payload: { name?: string; visibility?: Visibility; team_id?: string },
+): Promise<Runner> {
+  return request<Runner>(`${RUNNERS}/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Revokes the machine: its sockets are refused and it stops reconnecting. */
+export async function deleteRunner(id: string): Promise<void> {
+  await request<void>(`${RUNNERS}/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Add one of the machine's agents as a carrier agent. */
+export async function addRunnerAgent(
+  runnerId: string, payload: { acp_agent: string; id?: string; name?: string },
+): Promise<AgentDefinition> {
+  return request<AgentDefinition>(`${RUNNERS}/${encodeURIComponent(runnerId)}/agents`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * The pending enrollment a number belongs to. Fails with the backend's
+ * `detail` — no such number (404), too many wrong ones (429).
+ */
+export async function lookupRunnerEnrollment(code: string): Promise<RunnerEnrollment> {
+  return request<RunnerEnrollment>(`${RUNNERS}/enrollments/lookup`, {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function approveRunnerEnrollment(
+  id: string, payload: RunnerApproveRequest,
+): Promise<RunnerApproveResult> {
+  return request<RunnerApproveResult>(`${RUNNERS}/enrollments/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function denyRunnerEnrollment(id: string, code: string): Promise<void> {
+  await request<unknown>(`${RUNNERS}/enrollments/${encodeURIComponent(id)}/deny`, {
+    method: "POST",
+    body: JSON.stringify({ code }),
   });
 }
 

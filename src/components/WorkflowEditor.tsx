@@ -29,7 +29,8 @@ import { useLlmProviders } from "@/hooks/useLlmProviders";
 import { useEvents } from "@/hooks/useEvents";
 import { useDatasources } from "@/hooks/useDatasources";
 import { DatasourceParamsEditor } from "@/components/DatasourceParamsEditor";
-import { fetchWorkflows, listAgents, getAgent, createAgent, updateAgent, updateAgentAddons, deleteAgent, listMcpIntegrations, listAgentTools, type AgentToolInfo, type AgentDefinition, type McpIntegration, listDatasources, createDatasource, updateDatasource, deleteDatasource, probeDatasource, tryDatasourceOperation, fetchDatasourceSchema, uploadDatasourceSchema, listConfigKeys, listServiceIdentities, getGoogleSheetsTemplate, DATASOURCE_SECRET_REDACTED, type GoogleSheetsTemplate, type DataSourceDefinition, type DataSourceKind, type DataSourceAuth, type DataSourceAuthWrite, type ServiceIdentitiesResponse, type DataSourceOperation, type DataSourceParamSpec, type DiscoveredSchema, type SchemaImportResult, type TryOperationDestructivePlan, listEvents, createEvent, updateEvent, deleteEvent, EventNameConflictError, type EventDefinition } from "@/lib/api";
+import { agentDisplayName } from "@/lib/runners";
+import { fetchWorkflows, listRunners, type AgentRuntime, type Runner, listAgents, getAgent, createAgent, updateAgent, updateAgentAddons, deleteAgent, listMcpIntegrations, listAgentTools, type AgentToolInfo, type AgentDefinition, type McpIntegration, listDatasources, createDatasource, updateDatasource, deleteDatasource, probeDatasource, tryDatasourceOperation, fetchDatasourceSchema, uploadDatasourceSchema, listConfigKeys, listServiceIdentities, getGoogleSheetsTemplate, DATASOURCE_SECRET_REDACTED, type GoogleSheetsTemplate, type DataSourceDefinition, type DataSourceKind, type DataSourceAuth, type DataSourceAuthWrite, type ServiceIdentitiesResponse, type DataSourceOperation, type DataSourceParamSpec, type DiscoveredSchema, type SchemaImportResult, type TryOperationDestructivePlan, listEvents, createEvent, updateEvent, deleteEvent, EventNameConflictError, type EventDefinition } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/config";
 import { PythonStepFields } from "./PythonStepFields";
 import { DataStepFields, dataStepProblem } from "./DataStepFields";
@@ -3598,11 +3599,25 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
       : "";
   });
   const { providers, defaultProvider } = useLlmProviders();
-  const [defaultRuntime, setDefaultRuntime] = useState<"local" | "docker" | "k8s">(agent?.default_runtime ?? "local");
+  const [defaultRuntime, setDefaultRuntime] = useState<AgentRuntime>(agent?.default_runtime ?? "local");
   const [image, setImage]                   = useState(agent?.image ?? "");
   const [healthTimeout, setHealthTimeout]   = useState<number | "">(agent?.health_timeout ?? "");
   const [protocol, setProtocol]             = useState<"http-poll" | "acp">(agent?.protocol ?? "http-poll");
   const [acpAgent, setAcpAgent]             = useState(agent?.acp_agent ?? "");
+  // Runner runtime: the machine, and which of its agents (kept in `acpAgent`).
+  const [runnerId, setRunnerId]             = useState(agent?.runner_id ?? "");
+  const [runners, setRunners]               = useState<Runner[] | null>(null);
+  const [runnersError, setRunnersError]     = useState<string | null>(null);
+  const onRunner = defaultRuntime === "runner";
+  useEffect(() => {
+    if (!onRunner || runners) return;
+    let live = true;
+    listRunners()
+      .then((r) => { if (live) setRunners(r); })
+      .catch((err) => { if (live) { setRunners([]); setRunnersError(err instanceof Error ? err.message : "Failed to load runners"); } });
+    return () => { live = false; };
+  }, [onRunner, runners]);
+  const runner = runners?.find((r) => r.id === runnerId) ?? null;
   const [helmChart, setHelmChart]           = useState(agent?.helm_chart ?? "");
   const [helmValuesText, setHelmValuesText] = useState(
     agent?.helm_values
@@ -3619,6 +3634,10 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
     e.preventDefault();
     if (access.missingTeam) {
       setError("Choose the team this belongs to.");
+      return;
+    }
+    if (onRunner && !runnerId) {
+      setError("Choose the machine this agent runs on.");
       return;
     }
     setSaving(true);
@@ -3650,8 +3669,10 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
         health_timeout: defaultRuntime === "docker" && healthTimeout !== "" ? Number(healthTimeout) : undefined,
         helm_chart: defaultRuntime === "k8s" ? (helmChart.trim() || null) : null,
         helm_values: defaultRuntime === "k8s" ? helmValuesParsed : {},
-        protocol,
-        acp_agent: protocol === "acp" ? (acpAgent.trim() || null) : null,
+        // A runner agent always speaks ACP: the machine's proxy is an ACP proxy.
+        protocol: onRunner ? "acp" as const : protocol,
+        acp_agent: onRunner || protocol === "acp" ? (acpAgent.trim() || null) : null,
+        runner_id: onRunner ? runnerId : null,
         ...access.payload,
       };
       onSave(isEdit
@@ -3758,7 +3779,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
           minHeight={72}
         />
       </div>
-      <div className="space-y-1.5">
+      {!onRunner && <div className="space-y-1.5">
         <label className="text-xs font-medium text-slate-400">
           Protocol <span className="text-slate-500 font-normal">— how carrier talks to the agent process</span>
         </label>
@@ -3770,8 +3791,8 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
           <option value="http-poll">HTTP poll (pi-cloud-agent)</option>
           <option value="acp">ACP over WebSocket (acp-web-proxy)</option>
         </select>
-      </div>
-      {protocol === "acp" && (
+      </div>}
+      {!onRunner && protocol === "acp" && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-400">
             ACP agent <span className="text-slate-500 font-normal">— name in the proxy config, e.g. pi, claude, codex; empty = proxy default</span>
@@ -3787,14 +3808,60 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-slate-400">Default Runtime</label>
         <select
-          value={defaultRuntime} onChange={(e) => setDefaultRuntime(e.target.value as "local" | "docker" | "k8s")}
+          aria-label="Default Runtime"
+          value={defaultRuntime} onChange={(e) => setDefaultRuntime(e.target.value as AgentRuntime)}
           className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-sky-500"
         >
           <option value="local">local</option>
           <option value="docker">docker</option>
           <option value="k8s">k8s</option>
+          <option value="runner">runner (a connected machine)</option>
         </select>
       </div>
+      {onRunner && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-400">
+            Machine <span className="text-slate-500 font-normal">— connect one from the Runners panel</span>
+          </label>
+          <select
+            aria-label="Runner"
+            value={runnerId}
+            onChange={(e) => {
+              const next = runners?.find((r) => r.id === e.target.value);
+              setRunnerId(e.target.value);
+              // Start on the machine's default agent; the user can pick another.
+              if (next) setAcpAgent(next.default_agent ?? next.agents[0] ?? "");
+            }}
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-sky-500"
+          >
+            <option value="">{runners ? "— select a machine —" : "loading…"}</option>
+            {(runners ?? []).map((r) => (
+              <option key={r.id} value={r.id}>{r.name}{r.online ? "" : " (offline)"}</option>
+            ))}
+            {runnerId && runners && !runner && <option value={runnerId}>{runnerId} (unknown)</option>}
+          </select>
+          {runnersError && <p className="text-[11px] text-red-400">{runnersError}</p>}
+        </div>
+      )}
+      {onRunner && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-400">Agent on that machine</label>
+          <select
+            aria-label="Agent on that machine"
+            value={acpAgent}
+            disabled={!runnerId}
+            onChange={(e) => setAcpAgent(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-sky-500 disabled:opacity-50"
+          >
+            <option value="">machine default{runner?.default_agent ? ` (${agentDisplayName(runner.default_agent)})` : ""}</option>
+            {(runner?.agents ?? []).map((a) => <option key={a} value={a}>{agentDisplayName(a)}</option>)}
+            {acpAgent && runner && !runner.agents.includes(acpAgent) && (
+              <option value={acpAgent}>{acpAgent} (not on this machine)</option>
+            )}
+            {acpAgent && !runner && <option value={acpAgent}>{acpAgent}</option>}
+          </select>
+        </div>
+      )}
       {defaultRuntime === "docker" && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-400">Image</label>

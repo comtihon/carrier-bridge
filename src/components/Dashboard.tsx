@@ -47,6 +47,8 @@ import { AdminView, type AdminTab } from "./admin/AdminView";
 import { EventEditor, emptyEventDraft, eventToDraft, type EventDraft } from "./EventEditor";
 import { DockRail, PanelShell, PANEL_ORDER, type PanelId } from "./panels/dock";
 import { AgentsPanel } from "./panels/AgentsPanel";
+import { RunnersPanel } from "./panels/RunnersPanel";
+import { ApproveRunnerDialog, ConnectRunnerDialog, useApproveRunnerDeepLink } from "./RunnerDialogs";
 import { ApprovalsPanel } from "./panels/ApprovalsPanel";
 import { ApprovalDetail } from "./ApprovalDetail";
 import { DatasourcesPanel } from "./panels/DatasourcesPanel";
@@ -358,6 +360,10 @@ export function Dashboard() {
   // means the centre pane is not editing that kind of resource at all.
   const [agentTarget, setAgentTarget] = useState<{ agent: AgentDefinition | null } | null>(null);
   const [agentsToken, setAgentsToken] = useState(0);
+  // Connecting a machine: the help dialog, then number matching. Held here
+  // rather than in the Runners panel so `#approve-runner` works with it closed.
+  const [runnerDialog, setRunnerDialog] = useState<"connect" | "approve" | null>(null);
+  const [runnersToken, setRunnersToken] = useState(0);
   const [dsTarget, setDsTarget] = useState<{ datasource: DataSourceDefinition | null } | null>(null);
   const [dsToken, setDsToken] = useState(0);
 
@@ -704,6 +710,12 @@ export function Dashboard() {
     setAgentsToken((t) => t + 1);
   }, []);
 
+  // ── Runners ───────────────────────────────────────────────────────────────
+  useApproveRunnerDeepLink(useCallback(() => {
+    setRunnerDialog("approve");
+    openPanel("runners");
+  }, [openPanel]));
+
   // ── Datasources ───────────────────────────────────────────────────────────
   const handleOpenDatasource = useCallback(async (id: string) => {
     setCenter("datasource");
@@ -824,6 +836,17 @@ export function Dashboard() {
             onNew={handleNewAgent}
             selectedId={openingId ?? agentTarget?.agent?.id ?? null}
             reloadToken={agentsToken}
+          />
+        );
+      case "runners":
+        return (
+          <RunnersPanel
+            key={id}
+            onClose={() => closePanel(id)}
+            onConnect={() => setRunnerDialog("connect")}
+            onOpenAgent={handleOpenAgent}
+            onAgentAdded={() => setAgentsToken((t) => t + 1)}
+            reloadToken={runnersToken}
           />
         );
       case "datasources":
@@ -1034,6 +1057,16 @@ export function Dashboard() {
         <SubmitWorkflowModal
           onSubmit={(run) => { addRunId(run.id); setSelectedRunId(run.id); setCenter("run"); setShowModal(false); }}
           onClose={() => setShowModal(false)}
+        />
+      )}
+
+      {runnerDialog === "connect" && (
+        <ConnectRunnerDialog onClose={() => setRunnerDialog(null)} onHaveNumber={() => setRunnerDialog("approve")} />
+      )}
+      {runnerDialog === "approve" && (
+        <ApproveRunnerDialog
+          onClose={() => setRunnerDialog(null)}
+          onApproved={() => { setRunnersToken((t) => t + 1); setAgentsToken((t) => t + 1); }}
         />
       )}
     </div>

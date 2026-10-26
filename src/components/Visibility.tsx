@@ -122,13 +122,15 @@ export function useVisibilityDraft(resource: Ownership | null | undefined, isNew
 
 /** Private / Team / Public switch. */
 export function VisibilityControl({
-  value, onChange, disabled, teamLabel = "Team", teamUnavailable, withTeam = true,
+  value, onChange, disabled, teamLabel = "Team", teamUnavailable, withTeam = true, withPublic = true,
 }: {
   value: Visibility;
   onChange: (v: Visibility) => void;
   disabled?: boolean;
   /** False against a backend without teams: just Private/Public. */
   withTeam?: boolean;
+  /** False where public is not on offer (a machine someone just connected). */
+  withPublic?: boolean;
   /** "Team", or the team's name when there is only one it can be. */
   teamLabel?: string;
   /** Why Team cannot be chosen (no team); enabled when absent. */
@@ -138,7 +140,7 @@ export function VisibilityControl({
     { v: "private", label: "Private", Icon: LockKeyhole },
     { v: "team", label: teamLabel, Icon: Users, off: teamUnavailable },
     { v: "public", label: "Public", Icon: Globe },
-  ].filter((o) => withTeam || o.v !== "team") as typeof options;
+  ].filter((o) => (withTeam || o.v !== "team") && (withPublic || o.v !== "public")) as typeof options;
   return (
     <div role="radiogroup" aria-label="Visibility"
       className="inline-flex items-center rounded-lg overflow-hidden border border-slate-700 text-[11px] font-medium">

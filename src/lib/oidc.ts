@@ -25,6 +25,18 @@ export async function getAccessToken(): Promise<string | undefined> {
   return user && !user.expired ? user.access_token : undefined;
 }
 
+/**
+ * Sign in, coming back to the same `#hash` afterwards — carrier sends people
+ * to `<UI>/#approve-runner`, which must survive the round trip.
+ */
 export async function login(): Promise<void> {
-  await getUserManager().signinRedirect();
+  const hash = window.location.hash;
+  await getUserManager().signinRedirect(hash ? { state: { hash } } : undefined);
+}
+
+/** The `#hash` `login` was called from, if the callback carried one back. */
+export function returnHash(state: unknown): string {
+  const hash = (state as { hash?: unknown } | null | undefined)?.hash;
+  // Only a fragment: the callback must never send the browser elsewhere.
+  return typeof hash === "string" && /^#[\w-]+$/.test(hash) ? hash : "";
 }

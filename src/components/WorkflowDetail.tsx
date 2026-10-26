@@ -35,6 +35,7 @@ import { isOutputRef } from "@/lib/outputRef";
 import { CombinedPartsList } from "./workflow-canvas/nodes/CombinedPartsList";
 import { effectiveStatus } from "@/lib/types";
 import { MarkdownView } from "./Markdown";
+import { StepWaitNotice } from "./StepWaitNotice";
 import { retryWorkflowRun, restartFromStep, agentReply, getWorkflowDefinition, terminateWorkflowRun, listS3AddonFiles, getS3SignedUrl } from "@/lib/api";
 import type { S3FileEntry } from "@/lib/api";
 import { useRunTrace } from "@/hooks/useRunTrace";
@@ -356,6 +357,11 @@ function StepDetail({
               Cancel
             </button>
           </div>
+        )}
+        {/* Parked on a usage limit or an offline machine: say why nothing is
+            moving. A step that already ended has nothing left to wait for. */}
+        {step.type === "agent" && !["finished", "failed", "skipped"].includes(step.status ?? "") && (
+          <StepWaitNotice state={run.intermediate_outputs} stepId={step.id} />
         )}
         {step.status === "running" && (() => {
           const progress = (run.intermediate_outputs as Record<string, unknown>)?.[`_agent_progress_${step.id}`] as string[] | undefined;
