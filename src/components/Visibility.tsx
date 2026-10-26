@@ -184,7 +184,7 @@ function visibilityNote(visibility: Visibility, kind: string, team: string | nul
 export function AccessSection({
   resource, isNew, draft, kind,
 }: {
-  resource: Ownership | null | undefined;
+  resource: (Ownership & DataSourceSharing) | null | undefined;
   isNew: boolean;
   draft: ReturnType<typeof useVisibilityDraft>;
   /** "agent", "datasource"… — for the read-only note. */
@@ -192,6 +192,8 @@ export function AccessSection({
 }) {
   if (!draft.supported) return null;
   const editable = isNew || canEdit(resource);
+  // A read_write grantee may edit the content, never who can see it.
+  const scopeEditable = editable && (isNew || resource?.can_share !== false || !resource?.granted_access);
   const owner = !isNew && resource ? ownerLabel(resource, draft.me) : null;
   const ownTeam = draft.me?.team ?? null;
   // A super admin picks the team; anyone else's Team is their own team (or,
@@ -208,7 +210,7 @@ export function AccessSection({
         <VisibilityControl
           value={draft.visibility}
           onChange={draft.setVisibility}
-          disabled={!editable}
+          disabled={!scopeEditable}
           teamLabel={!draft.superAdmin && teamName ? teamName : "Team"}
           teamUnavailable={teamUnavailable}
           withTeam={draft.teamsSupported}
@@ -221,7 +223,7 @@ export function AccessSection({
           <select
             id="visibility-team"
             aria-label="Team"
-            disabled={!editable}
+            disabled={!scopeEditable}
             value={draft.teamId}
             onChange={(e) => draft.setTeamId(e.target.value)}
             className="rounded bg-slate-800 border border-slate-600 px-2 py-1 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"

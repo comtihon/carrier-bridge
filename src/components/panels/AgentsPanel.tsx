@@ -6,6 +6,7 @@ import { clsx } from "clsx";
 import { deleteAgent, listAgentSummaries, type AgentSummary } from "@/lib/api";
 import { PanelShell } from "./dock";
 import { PrivateBadge, canEdit } from "../Visibility";
+import { accessLabel } from "../ResourceGrants";
 
 /**
  * Pre-configured agents: view, edit, add.
@@ -95,6 +96,14 @@ export function AgentsPanel({
                   <div className="flex items-center gap-1.5 min-w-0">
                     <p className="text-xs font-semibold text-slate-200 truncate">{a.name || a.id}</p>
                     <PrivateBadge resource={a} />
+                    {a.granted_access && (
+                      <span
+                        title={`Shared with you — ${accessLabel("agent", a.granted_access).toLowerCase()}`}
+                        className="shrink-0 rounded border border-sky-800 bg-sky-950/40 px-1 text-[9px] text-sky-300"
+                      >
+                        shared{a.granted_access === "read_write" ? " · editable" : ""}
+                      </span>
+                    )}
                   </div>
                   {a.description && (
                     <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">{a.description}</p>

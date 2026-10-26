@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Database, Loader2, Plus, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
 import { deleteDatasource, listDatasourceSummaries, type DataSourceSummary } from "@/lib/api";
-import { ACCESS_LABEL } from "../DatasourceGrants";
+import { ACCESS_LABEL } from "../ResourceGrants";
 import { PanelShell } from "./dock";
 import { PrivateBadge, canEdit } from "../Visibility";
 import { DatasourceRiskBadge } from "../DatasourceRiskBadge";

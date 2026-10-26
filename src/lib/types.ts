@@ -475,7 +475,35 @@ export interface Ownership {
   can_edit?: boolean;
 }
 
-export interface WorkflowDefinition extends Ownership {
+export type GrantAccess = "read" | "read_write";
+export type GranteeType = "user" | "workflow";
+
+/** Access to a datasource, agent or workflow for a user or workflow its visibility leaves out. */
+export interface ResourceGrant {
+  id: string;
+  grantee_type: GranteeType;
+  grantee_id: string;
+  /** Name at grant time; null for a workflow the granter cannot see. */
+  grantee_name?: string | null;
+  access: GrantAccess;
+  granted_by?: string | null;
+  granted_by_name?: string | null;
+  granted_at?: string | null;
+}
+
+/** Grant fields a datasource, agent or workflow read carries (absent on backends without grants). */
+export interface Sharing {
+  /** Only for callers who may share it. */
+  grants?: ResourceGrant[];
+  /** Whether the caller may grant and revoke. */
+  can_share?: boolean;
+  /** The caller's own user grant, if that is how they see it. */
+  granted_access?: GrantAccess | null;
+  /** Set when listed for a workflow (`workflow_id`) the source is granted to. */
+  granted_to_workflow?: GrantAccess | null;
+}
+
+export interface WorkflowDefinition extends Ownership, Sharing {
   id: string;
   name: string;
   description: string;
@@ -813,7 +841,7 @@ export interface EditableWorkflowDefinition {
 }
 
 /** Full workflow definition as returned by GET /workflows/{id}. */
-export interface ApiWorkflowDefinition extends Ownership {
+export interface ApiWorkflowDefinition extends Ownership, Sharing {
   id: string;
   name: string;
   description: string;
