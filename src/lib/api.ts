@@ -17,9 +17,10 @@ import type {
   ApprovalHistoryResponse,
   Ownership,
   Visibility,
+  BrainAccess,
 } from "./types";
 
-export type { GrantAccess, GranteeType, Ownership, ResourceGrant, Sharing, Visibility } from "./types";
+export type { BrainAccess, GrantAccess, GranteeType, Ownership, ResourceGrant, Sharing, Visibility } from "./types";
 
 import { BACKEND_URL } from "./config";
 import { getAccessToken } from "./oidc";
@@ -248,6 +249,7 @@ export async function createWorkflowDefinition(payload: {
   ui?: Record<string, unknown>;
   use_meta_llm?: boolean;
   use_storage?: boolean;
+  brain_access?: BrainAccess;
   visibility?: Visibility;
 }): Promise<ApiWorkflowDefinition> {
   return request<ApiWorkflowDefinition>("/workflows", {
@@ -265,6 +267,8 @@ export async function updateWorkflowDefinition(
     ui?: Record<string, unknown>;
     use_meta_llm?: boolean;
     use_storage?: boolean;
+    /** Omitted keeps the stored value, but the editor always sends it. */
+    brain_access?: BrainAccess;
     /** Omit to keep the stored value; the backend only changes it when sent. */
     enabled?: boolean;
     /** Same: omitted keeps who can see it. */
@@ -295,6 +299,7 @@ export async function setWorkflowEnabled(
     ui: current.ui,
     use_meta_llm: current.use_meta_llm,
     use_storage: current.use_storage,
+    brain_access: current.brain_access,
     enabled,
   });
 }
@@ -555,6 +560,8 @@ export interface AgentDefinition extends Ownership, Sharing {
   acp_agent?: string | null;
   /** Runner agents only: the machine it runs on; `acp_agent` names the agent there. */
   runner_id?: string | null;
+  /** Shared company memory (gbrain); capped by the workflow's own setting. Absent = "none". */
+  brain_access?: BrainAccess;
 }
 
 export type AgentRuntime = "local" | "docker" | "k8s" | "runner";
@@ -572,6 +579,7 @@ export interface AgentCreateRequest {
   protocol?: "http-poll" | "acp";
   acp_agent?: string | null;
   runner_id?: string | null;
+  brain_access?: BrainAccess;
   visibility?: Visibility;
 }
 
@@ -587,6 +595,7 @@ export interface AgentUpdateRequest {
   protocol?: "http-poll" | "acp";
   acp_agent?: string | null;
   runner_id?: string | null;
+  brain_access?: BrainAccess;
   visibility?: Visibility;
 }
 
@@ -1927,6 +1936,34 @@ export async function checkBackendHealth(): Promise<boolean> {
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+export type BrainStatus = "not_configured" | "unavailable" | "ok";
+
+/**
+ * The shared-memory (gbrain) status. `unknown` covers everything the backend
+ * did not answer with a status of its own: unreachable, an error, or a garbled
+ * body. An older backend without the route (404) counts as not configured.
+ */
+export interface BrainHealth {
+  status: BrainStatus | "unknown";
+  detail: string | null;
+}
+
+export async function checkBrainHealth(): Promise<BrainHealth> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/health/brain`);
+    if (res.status === 404) return { status: "not_configured", detail: null };
+    if (!res.ok) return { status: "unknown", detail: null };
+    const body = (await res.json()) as { status?: unknown; detail?: unknown };
+    const status = body?.status;
+    if (status !== "not_configured" && status !== "unavailable" && status !== "ok") {
+      return { status: "unknown", detail: null };
+    }
+    return { status, detail: typeof body.detail === "string" && body.detail ? body.detail : null };
+  } catch {
+    return { status: "unknown", detail: null };
   }
 }
 

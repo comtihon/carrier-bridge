@@ -109,6 +109,7 @@ describe("setWorkflowEnabled", () => {
       steps: [{ id: "step1", type: "llm" }],
       ui: { layout: {} },
       use_meta_llm: true,
+      brain_access: "read",
       enabled: true,
     };
     const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -134,6 +135,7 @@ describe("setWorkflowEnabled", () => {
       steps: [{ id: "step1", type: "llm" }],
       ui: { layout: {} },
       use_meta_llm: true,
+      brain_access: "read",
       enabled: false,
     });
 
