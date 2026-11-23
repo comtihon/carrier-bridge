@@ -15,6 +15,7 @@ import { ArrowLeft, Save, Loader2, AlertTriangle, Bot, Lock, Workflow } from "lu
 import { clsx } from "clsx";
 import { listAgents, type AgentDefinition, type AgentAddonEntry } from "@/lib/api";
 import type {
+  BrainAccess,
   DynamicStepConfig,
   EditableWorkflowDefinition,
   JobCategory,
@@ -22,6 +23,7 @@ import type {
 } from "@/lib/types";
 import { JOB_CATEGORIES } from "@/lib/types";
 import { dsFieldCls, dsFieldMonoCls } from "../fieldStyles";
+import { BrainAccessSelect, brainAccessOf } from "../BrainAccess";
 import { VisibilityBadge, scopeConflict, useUsageScope } from "../Visibility";
 import {
   AUTOMATION_MODES,
@@ -197,6 +199,7 @@ export function DynamicWorkflowEditor({ workflow, onSave, onCancel, saving, save
   const [name, setName] = useState(workflow.name);
   const [description, setDescription] = useState(workflow.description ?? "");
   const [useMetaLlm, setUseMetaLlm] = useState<boolean>(workflow.use_meta_llm ?? true);
+  const [brainAccess, setBrainAccess] = useState<BrainAccess>(brainAccessOf(workflow.brain_access));
   const [cfg, setCfg] = useState<DynamicStepConfig>(() => ({ ...defaultDynamicConfig(), ...(node?.dynamic ?? {}) }));
   const [agents, setAgents] = useState<AgentDefinition[] | null>(null);
   const [agentsError, setAgentsError] = useState<string | null>(null);
@@ -238,6 +241,7 @@ export function DynamicWorkflowEditor({ workflow, onSave, onCancel, saving, save
       name,
       description,
       use_meta_llm: useMetaLlm,
+      brain_access: brainAccess,
       nodes: [...others, { ...dyn, dynamic: cfg }],
     });
   }
@@ -300,6 +304,17 @@ export function DynamicWorkflowEditor({ workflow, onSave, onCancel, saving, save
               <input type="checkbox" className="accent-violet-500" checked={useMetaLlm} disabled={readonly} onChange={(e) => setUseMetaLlm(e.target.checked)} />
               Quality-gate every job's output with the meta-LLM (a rejected output is retried like a failure)
             </label>
+            <div>
+              <Label>Brain access</Label>
+              <BrainAccessSelect
+                value={brainAccess}
+                onChange={setBrainAccess}
+                disabled={readonly}
+                hint="Agents in this workflow get at most this access."
+                hintClassName="mt-1"
+                className={clsx(dsFieldCls, "w-60")}
+              />
+            </div>
           </Section>
 
           <Section title="Automation" hint="How much of the run a human signs off. Decisions that need sign-off pause the run until approved or rejected.">

@@ -815,6 +815,12 @@ export interface EditableNodeConfig {
   allowed_operations?: string[];
 }
 
+/**
+ * Access to the shared company memory (gbrain). Set on agents and on
+ * workflows; an agent step gets the lower of the two.
+ */
+export type BrainAccess = "none" | "read" | "write";
+
 export interface EditableWorkflowDefinition {
   id: string;
   name: string;
@@ -822,6 +828,8 @@ export interface EditableWorkflowDefinition {
   readonly?: boolean;
   use_meta_llm?: boolean;
   use_storage?: boolean;
+  /** Shared company memory (gbrain) for this workflow's agents; caps each agent's own setting. */
+  brain_access?: BrainAccess;
   nodes: EditableNodeConfig[];
   edges: Array<{
     id: string;
@@ -851,6 +859,7 @@ export interface ApiWorkflowDefinition extends Ownership, Sharing {
   ui?: Record<string, unknown>;
   use_meta_llm?: boolean;
   use_storage?: boolean;
+  brain_access?: BrainAccess;
   created_at?: string;
   updated_at?: string;
 }

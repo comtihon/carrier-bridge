@@ -54,6 +54,7 @@ import { ApprovalDetail } from "./ApprovalDetail";
 import { DatasourcesPanel } from "./panels/DatasourcesPanel";
 import { EventsPanel } from "./panels/EventsPanel";
 import { LibraryPanel } from "./panels/LibraryPanel";
+import { BrainHealthIndicator } from "./BrainAccess";
 import { WorkflowEditor, AgentEditor, DatasourceEditor, apiStepToConfig, editableToApiPayload } from "./WorkflowEditor";
 import { deriveEdges } from "@/lib/graphEdges";
 import { clsx } from "clsx";
@@ -80,7 +81,7 @@ import { effectiveStatus } from "@/lib/types";
 import { BACKEND_URL } from "@/lib/config";
 import type {
   ApprovalCaseSummary, WorkflowRun, EditableWorkflowDefinition, WorkflowDefinition,
-  EditableNodeConfig, Ownership, Sharing, Visibility,
+  EditableNodeConfig, Ownership, Sharing, Visibility, BrainAccess,
 } from "@/lib/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -107,6 +108,7 @@ function toEditable(def: {
   ui?: Record<string, unknown>;
   use_meta_llm?: boolean;
   use_storage?: boolean;
+  brain_access?: BrainAccess;
 }): EditableWorkflowDefinition {
   const rawSteps = def.steps ?? [];
   const nodes = rawSteps.map(apiStepToConfig);
@@ -233,7 +235,7 @@ function toEditable(def: {
     }
   }
 
-  return { id: def.id, name: def.name, description: def.description, readonly: def.readonly, use_meta_llm: def.use_meta_llm, use_storage: def.use_storage, nodes, edges, layout };
+  return { id: def.id, name: def.name, description: def.description, readonly: def.readonly, use_meta_llm: def.use_meta_llm, use_storage: def.use_storage, brain_access: def.brain_access, nodes, edges, layout };
 }
 
 // ─── Hidden-workflow filter (localStorage) ────────────────────────────────────
@@ -521,6 +523,7 @@ export function Dashboard() {
         ui: full.ui,
         use_meta_llm: full.use_meta_llm,
         use_storage: full.use_storage,
+        brain_access: full.brain_access,
       }));
       setWfOwnership(ownershipOf(full));
     } catch {
@@ -581,7 +584,8 @@ export function Dashboard() {
         // Take every field from `payload` rather than hand-picking: PUT
         // replaces the whole definition, so a field left out here is a feature
         // silently switched off. `use_storage` was missing, which is why the
-        // storage checkbox never appeared to stick.
+        // storage checkbox never appeared to stick. `brain_access` is always
+        // sent too, even though the backend would keep it if omitted.
         const saved = await updateWorkflowDefinition(updated.id, {
           name:         payload.name,
           description:  payload.description,
@@ -589,6 +593,7 @@ export function Dashboard() {
           ui:           payload.ui,
           use_meta_llm: payload.use_meta_llm,
           use_storage:  payload.use_storage,
+          brain_access: payload.brain_access,
           ...wfAccess.payload,
         });
         const stored = ownershipOf(saved);
@@ -1042,6 +1047,7 @@ export function Dashboard() {
           <div className="flex flex-col items-center gap-2">
             <TeamTag me={me} />
             <BackendHealthIndicator compact />
+            <BrainHealthIndicator compact />
           </div>
         }
       />

@@ -20,6 +20,7 @@ import { clsx } from "clsx";
 import { deriveEdges, END_MARKER } from "@/lib/graphEdges";
 import type {
   ApiStepType,
+  BrainAccess,
   EditableNodeConfig,
   EditableWorkflowDefinition,
   NotifyConfig,
@@ -37,6 +38,7 @@ import { DataStepFields, dataStepProblem } from "./DataStepFields";
 import { CombinedDatasourceFields } from "./CombinedDatasourceFields";
 import { combinedPartsProblem } from "@/lib/combinedDatasource";
 import { dsFieldCls, dsFieldMonoCls } from "./fieldStyles";
+import { BrainAccessSelect, brainAccessOf } from "./BrainAccess";
 import { GoogleSheetsPanel } from "./GoogleSheetsPanel";
 import { SheetBindingsPanel } from "./SheetBindingsPanel";
 import { RISK_BADGE_BASE_CLS, RISK_LEVEL_CLS, methodLevel, operationLevel } from "@/lib/datasourceRisk";
@@ -683,6 +685,7 @@ export function editableToApiPayload(wf: EditableWorkflowDefinition) {
     })(),
     use_meta_llm: wf.use_meta_llm ?? true,
     use_storage: wf.use_storage ?? false,
+    brain_access: brainAccessOf(wf.brain_access),
   };
 }
 
@@ -811,6 +814,11 @@ export function yamlToWorkflow(
     edges,
     isNew: fallback.isNew,
     layout: uiNodes ?? {},
+    // The YAML carries the workflow flags too (workflowToYaml dumps the full
+    // payload); dropping them here would reset them on a YAML-mode save.
+    ...(typeof obj.use_meta_llm === "boolean" ? { use_meta_llm: obj.use_meta_llm } : {}),
+    ...(typeof obj.use_storage === "boolean" ? { use_storage: obj.use_storage } : {}),
+    ...(obj.brain_access !== undefined ? { brain_access: brainAccessOf(obj.brain_access) } : {}),
   };
 }
 
@@ -1647,10 +1655,12 @@ interface PropertiesPanelProps {
   workflowDesc?: string;
   useMetaLlm?: boolean;
   useStorage?: boolean;
+  brainAccess?: BrainAccess;
   onWorkflowNameChange?: (v: string) => void;
   onWorkflowDescChange?: (v: string) => void;
   onUseMetaLlmChange?: (v: boolean) => void;
   onUseStorageChange?: (v: boolean) => void;
+  onBrainAccessChange?: (v: BrainAccess) => void;
 }
 
 /** Slug an event id out of a display name, the way workflow ids are slugged. */
@@ -1875,7 +1885,7 @@ function PubSubTriggerFields({ config, events, readonly, onChange, onEventsChang
   );
 }
 
-function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTogglePin, edges, onEdgeConditionChange, nodeById, allNodes, workflowName, workflowDesc, useMetaLlm, useStorage, onWorkflowNameChange, onWorkflowDescChange, onUseMetaLlmChange, onUseStorageChange }: PropertiesPanelProps) {
+function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTogglePin, edges, onEdgeConditionChange, nodeById, allNodes, workflowName, workflowDesc, useMetaLlm, useStorage, brainAccess, onWorkflowNameChange, onWorkflowDescChange, onUseMetaLlmChange, onUseStorageChange, onBrainAccessChange }: PropertiesPanelProps) {
   const { providers, defaultProvider, getDefaultModel, isLoading: providersLoading, error: providersError } = useLlmProviders();
   const [configKeys, setConfigKeys] = useState<string[]>([]);
   useEffect(() => {
@@ -1956,6 +1966,19 @@ function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTog
             Key/value state that survives between runs, private to this
             workflow. Read and written by Storage steps.
           </p>
+          <PropField label="Brain access">
+            <BrainAccessSelect
+              value={brainAccess ?? "none"}
+              onChange={(v) => onBrainAccessChange?.(v)}
+              disabled={readonly}
+              hint="Agents in this workflow get at most this access."
+              hintClassName="mt-1"
+              className={clsx(
+                "w-full rounded bg-slate-800 border border-slate-600 px-2 py-1 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500",
+                readonly && "opacity-60 cursor-not-allowed",
+              )}
+            />
+          </PropField>
         </div>
       </div>
     );
@@ -3606,6 +3629,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
   const [acpAgent, setAcpAgent]             = useState(agent?.acp_agent ?? "");
   // Runner runtime: the machine, and which of its agents (kept in `acpAgent`).
   const [runnerId, setRunnerId]             = useState(agent?.runner_id ?? "");
+  const [brainAccess, setBrainAccess]       = useState<BrainAccess>(brainAccessOf(agent?.brain_access));
   const [runners, setRunners]               = useState<Runner[] | null>(null);
   const [runnersError, setRunnersError]     = useState<string | null>(null);
   const onRunner = defaultRuntime === "runner";
@@ -3673,6 +3697,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
         protocol: onRunner ? "acp" as const : protocol,
         acp_agent: onRunner || protocol === "acp" ? (acpAgent.trim() || null) : null,
         runner_id: onRunner ? runnerId : null,
+        brain_access: brainAccess,
         ...access.payload,
       };
       onSave(isEdit
@@ -3777,6 +3802,15 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
           language="json"
           placeholder={'{"max_steps": 100}'}
           minHeight={72}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-slate-400">Brain access</label>
+        <BrainAccessSelect
+          value={brainAccess}
+          onChange={setBrainAccess}
+          hint="Shared Airteam memory (gbrain). Capped by the workflow's setting."
+          className={dsFieldCls}
         />
       </div>
       {!onRunner && <div className="space-y-1.5">
@@ -5889,6 +5923,7 @@ function WorkflowEditorInner({ workflow, onSave, onCancel, saving, saveError, re
   const [workflowId, setWorkflowId]     = useState(workflow.id);
   const [useMetaLlm, setUseMetaLlm]    = useState<boolean>(workflow.use_meta_llm ?? true);
   const [useStorage, setUseStorage]    = useState<boolean>(workflow.use_storage ?? false);
+  const [brainAccess, setBrainAccess]  = useState<BrainAccess>(brainAccessOf(workflow.brain_access));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [pinnedPanel, setPinnedPanel] = useState(true);
   const togglePin = useCallback(() => setPinnedPanel((v) => !v), []);
@@ -6673,8 +6708,9 @@ function WorkflowEditorInner({ workflow, onSave, onCancel, saving, saveError, re
       layout,
       use_meta_llm: useMetaLlm,
       use_storage: useStorage,
+      brain_access: brainAccess,
     });
-  }, [mode, yamlText, workflow, workflowId, workflowName, workflowDesc, nodes, edges, onSave, useMetaLlm, useStorage]);
+  }, [mode, yamlText, workflow, workflowId, workflowName, workflowDesc, nodes, edges, onSave, useMetaLlm, useStorage, brainAccess]);
 
   // ── Auto-save when a node is added ────────────────────────────────────────
   //
@@ -6984,6 +7020,8 @@ function WorkflowEditorInner({ workflow, onSave, onCancel, saving, saveError, re
                 workflowDesc={workflowDesc}
                 useMetaLlm={useMetaLlm}
                 useStorage={useStorage}
+                brainAccess={brainAccess}
+                onBrainAccessChange={setBrainAccess}
                 onWorkflowNameChange={setWorkflowName}
                 onWorkflowDescChange={setWorkflowDesc}
                 onUseMetaLlmChange={setUseMetaLlm}
