@@ -41,8 +41,27 @@ describe("StepWaitNotice", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Waiting for machine valerii-mbp to come online");
   });
 
+  it("says where a step queued for a runtime slot stands", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 23, 10, 5));
+    const state = {
+      _queue_wait_review: {
+        key: "runner:r_abc:claude", limit: 1, position: 2, holders: 1,
+        since: new Date(2026, 10, 23, 10, 0).toISOString(), agent_id: "claude-on-mbp",
+      },
+    };
+    render(<StepWaitNotice state={state} stepId="review" />);
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Queued for runner:r_abc:claude: position 2, limit 1, 1 running, since 10:00",
+    );
+  });
+
   it("renders nothing for a step that is not waiting", () => {
-    const state = { _runner_wait_other: { runner_id: "r1", runner_name: "x", since: "" } };
+    const state = {
+      _runner_wait_other: { runner_id: "r1", runner_name: "x", since: "" },
+      _queue_wait_other: { key: "agent:pi", limit: 1, position: 1, holders: 1, since: "" },
+    };
     const { container } = render(<StepWaitNotice state={state} stepId="review" />);
 
     expect(container).toBeEmptyDOMElement();

@@ -3630,6 +3630,8 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
   // Runner runtime: the machine, and which of its agents (kept in `acpAgent`).
   const [runnerId, setRunnerId]             = useState(agent?.runner_id ?? "");
   const [brainAccess, setBrainAccess]       = useState<BrainAccess>(brainAccessOf(agent?.brain_access));
+  // Empty = unlimited.
+  const [maxConcurrency, setMaxConcurrency] = useState<number | "">(agent?.max_concurrency ?? "");
   const [runners, setRunners]               = useState<Runner[] | null>(null);
   const [runnersError, setRunnersError]     = useState<string | null>(null);
   const onRunner = defaultRuntime === "runner";
@@ -3662,6 +3664,10 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
     }
     if (onRunner && !runnerId) {
       setError("Choose the machine this agent runs on.");
+      return;
+    }
+    if (maxConcurrency !== "" && (!Number.isInteger(maxConcurrency) || maxConcurrency < 1)) {
+      setError("Max concurrent runs must be a whole number of at least 1, or empty for unlimited.");
       return;
     }
     setSaving(true);
@@ -3698,6 +3704,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
         acp_agent: onRunner || protocol === "acp" ? (acpAgent.trim() || null) : null,
         runner_id: onRunner ? runnerId : null,
         brain_access: brainAccess,
+        max_concurrency: maxConcurrency === "" ? null : maxConcurrency,
         ...access.payload,
       };
       onSave(isEdit
@@ -3896,6 +3903,24 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
           </select>
         </div>
       )}
+      <div className="space-y-1.5">
+        <label htmlFor="agent-max-concurrency" className="text-xs font-medium text-slate-400">
+          Max concurrent runs <span className="text-slate-500 font-normal">— across all workflows and users; empty = unlimited, more runs queue</span>
+        </label>
+        <input
+          id="agent-max-concurrency"
+          type="number" min={1} step={1}
+          value={maxConcurrency}
+          onChange={(e) => setMaxConcurrency(e.target.value === "" ? "" : Number(e.target.value))}
+          placeholder="unlimited"
+          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500"
+        />
+        {onRunner && (
+          <p className="text-[11px] text-slate-500">
+            The machine&apos;s own cap for this agent (Runners panel) also applies; the lower one wins.
+          </p>
+        )}
+      </div>
       {defaultRuntime === "docker" && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-400">Image</label>
@@ -5753,7 +5778,9 @@ function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddo
                           <p className="text-xs font-medium text-slate-200 truncate">{a.name || a.id}</p>
                           <VisibilityBadge resource={a} />
                         </div>
-                        <p className="text-[10px] text-slate-500 truncate">{a.default_runtime}</p>
+                        <p className="text-[10px] text-slate-500 truncate">
+                          {a.default_runtime}{a.max_concurrency != null ? ` · max ${a.max_concurrency} at once` : ""}
+                        </p>
                       </div>
                       <button onClick={() => onAddAgent(a)}
                         disabled={!!scopeConflict(scope, a)}

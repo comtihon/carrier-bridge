@@ -562,6 +562,8 @@ export interface AgentDefinition extends Ownership, Sharing {
   runner_id?: string | null;
   /** Shared company memory (gbrain); capped by the workflow's own setting. Absent = "none". */
   brain_access?: BrainAccess;
+  /** Runs of this agent allowed at once, across every workflow and user; null = unlimited. */
+  max_concurrency?: number | null;
 }
 
 export type AgentRuntime = "local" | "docker" | "k8s" | "runner";
@@ -580,6 +582,8 @@ export interface AgentCreateRequest {
   acp_agent?: string | null;
   runner_id?: string | null;
   brain_access?: BrainAccess;
+  /** >= 1; null = unlimited. On update, omitted keeps the stored value. */
+  max_concurrency?: number | null;
   visibility?: Visibility;
 }
 
@@ -596,6 +600,8 @@ export interface AgentUpdateRequest {
   acp_agent?: string | null;
   runner_id?: string | null;
   brain_access?: BrainAccess;
+  /** >= 1; null = unlimited. On update, omitted keeps the stored value. */
+  max_concurrency?: number | null;
   visibility?: Visibility;
 }
 
@@ -606,7 +612,7 @@ export async function listAgents(workflowId?: string | null): Promise<AgentDefin
 
 /** What a list of agents draws: no `agent_input` (the system prompt), no addons. */
 export type AgentSummary =
-  Pick<AgentDefinition, "id" | "name" | "description" | "default_runtime"> & Ownership & Sharing;
+  Pick<AgentDefinition, "id" | "name" | "description" | "default_runtime" | "max_concurrency"> & Ownership & Sharing;
 
 /**
  * Agents without the parts only the editor reads.
@@ -728,6 +734,8 @@ export interface Runner extends Ownership {
   limits: Record<string, RunnerLimit>;
   /** Carrier agents that run on this machine. */
   agent_definitions: Array<{ id: string; name: string; acp_agent: string | null }>;
+  /** Runs allowed at once per machine agent name (e.g. `{claude: 1}`); absent = unlimited. */
+  agent_concurrency?: Record<string, number>;
 }
 
 export interface RunnerLimit {
@@ -773,13 +781,70 @@ export async function listRunners(): Promise<Runner[]> {
   return request<Runner[]>(RUNNERS);
 }
 
+export interface RunnerUpdateRequest {
+  name?: string;
+  visibility?: Visibility;
+  team_id?: string;
+  /** Merged into the stored map; null removes that agent's cap. */
+  agent_concurrency?: Record<string, number | null>;
+}
+
 export async function updateRunner(
-  id: string, payload: { name?: string; visibility?: Visibility; team_id?: string },
+  id: string, payload: RunnerUpdateRequest,
 ): Promise<Runner> {
   return request<Runner>(`${RUNNERS}/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+}
+
+// ─── Agent-runtime concurrency ───────────────────────────────────────────────
+
+/**
+ * A run holding or waiting for a slot. Runs in workflows the caller cannot see
+ * come back `hidden`, with their ids nulled (they still count).
+ */
+export interface ConcurrencyEntry {
+  id: string;
+  run_id: string | null;
+  step_id: string | null;
+  agent_id: string | null;
+  workflow_id: string | null;
+  heartbeat_at?: string | null;
+  expires_at?: string | null;
+  hidden: boolean;
+}
+
+export interface ConcurrencyHolder extends ConcurrencyEntry {
+  acquired_at: string | null;
+}
+
+export interface ConcurrencyWaiter extends ConcurrencyEntry {
+  /** 1-based place in the FIFO queue. */
+  position: number;
+  enqueued_at: string | null;
+}
+
+/**
+ * One runtime key: `runner:<runner_id>:<acp_agent>` (an agent on a connected
+ * machine) or `agent:<agent_definition_id>` (any other agent).
+ */
+export interface RuntimeConcurrency {
+  key: string;
+  kind: "runner" | "agent";
+  runner_id: string | null;
+  acp_agent: string | null;
+  agent_id: string | null;
+  /** Effective limit now; null = unlimited. */
+  limit: number | null;
+  holders: ConcurrencyHolder[];
+  queue: ConcurrencyWaiter[];
+}
+
+/** Keys with holders or waiters, plus those with a limit the caller can see. */
+export async function listAgentConcurrency(key?: string): Promise<RuntimeConcurrency[]> {
+  const q = key ? `?key=${encodeURIComponent(key)}` : "";
+  return request<RuntimeConcurrency[]>(`/agent-runtimes/concurrency${q}`);
 }
 
 /** Revokes the machine: its sockets are refused and it stops reconnecting. */

@@ -1,7 +1,8 @@
 /**
  * Small pure helpers for runners (machines connected through acp-web-proxy)
  * and the waits they put on a run: approval numbers, reset times, and the
- * `_quota_wait_<step>` / `_runner_wait_<step>` keys in a run's state.
+ * `_quota_wait_<step>` / `_runner_wait_<step>` / `_queue_wait_<step>` keys in
+ * a run's state.
  */
 
 /** Digits in an approval number — the machine prints "482 913". */
@@ -77,6 +78,48 @@ function entry<T>(state: Record<string, unknown> | null | undefined, key: string
 
 export function quotaWaitOf(state: Record<string, unknown> | null | undefined, stepId: string): QuotaWait | null {
   return entry<QuotaWait>(state, `_quota_wait_${stepId}`);
+}
+
+/**
+ * A step waiting for a slot on a runtime that is at its concurrency limit.
+ * `position` is 1-based and moves up as runs ahead of it finish.
+ */
+export interface QueueWait {
+  /** Runtime key: `runner:<runner_id>:<acp_agent>` or `agent:<agent_id>`. */
+  key: string;
+  limit: number | null;
+  position: number;
+  /** Runs holding a slot right now. */
+  holders: number;
+  since: string;
+  agent_id?: string | null;
+}
+
+export function queueWaitOf(state: Record<string, unknown> | null | undefined, stepId: string): QueueWait | null {
+  return entry<QueueWait>(state, `_queue_wait_${stepId}`);
+}
+
+/** "Queued for runner:r1:claude: position 2, limit 1, 1 running, since 10:00". */
+export function queueWaitText(wait: QueueWait, now: number = Date.now()): string {
+  const parts = [
+    `position ${wait.position}`,
+    `limit ${wait.limit ?? "unlimited"}`,
+    `${wait.holders} running`,
+  ];
+  if (wait.since) parts.push(`since ${formatClock(wait.since, now)}`);
+  return `Queued for ${wait.key}: ${parts.join(", ")}`;
+}
+
+/** What a runtime key names, for people: "Claude on mbp", "agent pi". */
+export function runtimeKeyLabel(
+  entry: { key: string; kind: string; runner_id: string | null; acp_agent: string | null; agent_id: string | null },
+  runnerName?: string | null,
+): string {
+  if (entry.kind === "runner" && entry.acp_agent) {
+    return `${agentDisplayName(entry.acp_agent)} on ${runnerName || entry.runner_id || "a machine"}`;
+  }
+  if (entry.kind === "agent" && entry.agent_id) return `agent ${entry.agent_id}`;
+  return entry.key;
 }
 
 export function runnerWaitOf(state: Record<string, unknown> | null | undefined, stepId: string): RunnerWait | null {
