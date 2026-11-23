@@ -131,6 +131,58 @@ describe("RunnersPanel", () => {
     expect(screen.queryByRole("button", { name: "Add as agent" })).toBeNull();
   });
 
+  it("shows each agent's concurrency cap and sets one", async () => {
+    vi.mocked(listRunners).mockResolvedValue([{ ...base, agent_concurrency: { claude: 1 } }]);
+    renderPanel();
+    const card = await screen.findByTestId("runner-r1");
+
+    expect(within(card).getByRole("button", { name: "Concurrency cap for claude" })).toHaveTextContent("max 1");
+    fireEvent.click(within(card).getByRole("button", { name: "Concurrency cap for codex" }));
+    fireEvent.change(screen.getByLabelText("Max concurrent runs of codex"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateRunner).toHaveBeenCalledWith("r1", { agent_concurrency: { codex: 2 } }));
+  });
+
+  it("clears a cap with an explicit null", async () => {
+    vi.mocked(listRunners).mockResolvedValue([{ ...base, agent_concurrency: { claude: 1 } }]);
+    renderPanel();
+    await screen.findByTestId("runner-r1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Concurrency cap for claude" }));
+    expect(screen.getByLabelText("Max concurrent runs of claude")).toHaveValue(1);
+    fireEvent.click(screen.getByRole("button", { name: "No cap" }));
+
+    await waitFor(() => expect(updateRunner).toHaveBeenCalledWith("r1", { agent_concurrency: { claude: null } }));
+  });
+
+  it("refuses a cap below one", async () => {
+    renderPanel();
+    await screen.findByTestId("runner-r1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Concurrency cap for claude" }));
+    fireEvent.change(screen.getByLabelText("Max concurrent runs of claude"), { target: { value: "0" } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("shows a cap on someone else's machine without letting them change it", async () => {
+    vi.mocked(listRunners).mockResolvedValue([{ ...base, can_edit: false, agent_concurrency: { claude: 3 } }]);
+    renderPanel();
+    const card = await screen.findByTestId("runner-r1");
+
+    expect(card).toHaveTextContent("max 3");
+    expect(screen.queryByRole("button", { name: /Concurrency cap for/ })).toBeNull();
+  });
+
+  it("lists a cap for an agent the machine no longer reports", async () => {
+    vi.mocked(listRunners).mockResolvedValue([{ ...base, agent_concurrency: { pi: 2 } }]);
+    renderPanel();
+    const card = await screen.findByTestId("runner-r1");
+
+    expect(card).toHaveTextContent("Pi (not on this machine)");
+    expect(within(card).getByRole("button", { name: "Concurrency cap for pi" })).toHaveTextContent("max 2");
+  });
+
   it("opens the connect dialog from the header", async () => {
     const { onConnect } = renderPanel();
     await screen.findByTestId("runner-r1");

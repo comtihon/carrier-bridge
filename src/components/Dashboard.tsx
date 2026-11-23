@@ -48,6 +48,7 @@ import { EventEditor, emptyEventDraft, eventToDraft, type EventDraft } from "./E
 import { DockRail, PanelShell, PANEL_ORDER, type PanelId } from "./panels/dock";
 import { AgentsPanel } from "./panels/AgentsPanel";
 import { RunnersPanel } from "./panels/RunnersPanel";
+import { ConcurrencyPanel } from "./panels/ConcurrencyPanel";
 import { ApproveRunnerDialog, ConnectRunnerDialog, useApproveRunnerDeepLink } from "./RunnerDialogs";
 import { ApprovalsPanel } from "./panels/ApprovalsPanel";
 import { ApprovalDetail } from "./ApprovalDetail";
@@ -852,6 +853,19 @@ export function Dashboard() {
             onOpenAgent={handleOpenAgent}
             onAgentAdded={() => setAgentsToken((t) => t + 1)}
             reloadToken={runnersToken}
+          />
+        );
+      case "concurrency":
+        return (
+          <ConcurrencyPanel
+            key={id}
+            onClose={() => closePanel(id)}
+            onOpenRun={handleOpenApprovalRun}
+            onOpenWorkflow={(workflowId) => {
+              openPanel("workflows");
+              handleEditWorkflow(workflowId);
+            }}
+            onOpenAgent={handleOpenAgent}
           />
         );
       case "datasources":

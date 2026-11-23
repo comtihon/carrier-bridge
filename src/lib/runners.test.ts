@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  formatSpan, normalizeApprovalCode, quotaWaitOf, quotaWaitText, runnerWaitOf,
+  formatSpan, normalizeApprovalCode, queueWaitOf, queueWaitText, quotaWaitOf, quotaWaitText, runnerWaitOf,
+  runtimeKeyLabel,
 } from "./runners";
 
 describe("normalizeApprovalCode", () => {
@@ -52,5 +53,23 @@ describe("waits in a run's state", () => {
   it("says it waits for the reset when there is no time", () => {
     expect(quotaWaitText({ kind: "usage_limit", resume_at: null }, now))
       .toBe("Usage limit reached — resumes when the limit resets");
+  });
+});
+
+describe("queue waits", () => {
+  it("reads the step's queue wait and says where it stands", () => {
+    const wait = { key: "agent:pi", limit: null, position: 3, holders: 2, since: "" };
+    expect(queueWaitOf({ _queue_wait_s1: wait }, "s1")).toEqual(wait);
+    expect(queueWaitOf({ _queue_wait_s1: wait }, "s2")).toBeNull();
+    expect(queueWaitText(wait)).toBe("Queued for agent:pi: position 3, limit unlimited, 2 running");
+  });
+});
+
+describe("runtimeKeyLabel", () => {
+  it("names a machine's agent and a plain agent", () => {
+    const runner = { key: "runner:r1:claude", kind: "runner", runner_id: "r1", acp_agent: "claude", agent_id: null };
+    expect(runtimeKeyLabel(runner, "mbp")).toBe("Claude on mbp");
+    expect(runtimeKeyLabel(runner)).toBe("Claude on r1");
+    expect(runtimeKeyLabel({ key: "agent:pi", kind: "agent", runner_id: null, acp_agent: null, agent_id: "pi" })).toBe("agent pi");
   });
 });

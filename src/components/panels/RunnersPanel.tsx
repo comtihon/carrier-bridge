@@ -18,6 +18,9 @@ import { VisibilityBadge, VisibilityControl, canEdit, useCurrentUser, useTeams }
  * A row shows whether the machine is online, what it runs, and which of its
  * agents are already carrier agents — the rest get an "Add as agent" button.
  * An agent that hit its usage limit says until when; steps using it wait.
+ * Each agent can carry a concurrency cap (`agent_concurrency`): the most runs
+ * of it on this machine at once, across all workflows and users — the rest
+ * queue. Whoever can edit the machine can set or clear it.
  *
  * Connecting a new machine happens in a dialog the caller owns (`onConnect`),
  * so `#approve-runner` can open it without this panel. Online state changes
@@ -122,6 +125,10 @@ function RunnerCard({ runner, me, now, act, onOpenAgent, onAgentAdded }: {
   // A definition without an agent name runs the machine's default agent.
   const definitionFor = (agent: string) =>
     runner.agent_definitions.find((d) => (d.acp_agent ?? runner.default_agent) === agent);
+  const caps = runner.agent_concurrency ?? {};
+  // A cap may name an agent the machine no longer reports; it still applies.
+  const agentNames = [...runner.agents, ...Object.keys(caps).filter((a) => !runner.agents.includes(a))];
+  const [capEditing, setCapEditing] = useState<string | null>(null);
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2.5 space-y-2" data-testid={`runner-${runner.id}`}>
@@ -172,16 +179,33 @@ function RunnerCard({ runner, me, now, act, onOpenAgent, onAgentAdded }: {
       )}
 
       <ul className="space-y-1">
-        {runner.agents.length === 0 && <li className="text-[10px] text-slate-600 italic">No agents found on this machine</li>}
-        {runner.agents.map((agent) => {
+        {agentNames.length === 0 && <li className="text-[10px] text-slate-600 italic">No agents found on this machine</li>}
+        {agentNames.map((agent) => {
           const def = definitionFor(agent);
           const limit = runner.limits?.[agent];
+          const onMachine = runner.agents.includes(agent);
+          const cap = caps[agent] ?? null;
           return (
             <li key={agent} className="space-y-0.5">
               <div className="flex items-center gap-1.5 text-[11px] text-slate-300 min-w-0">
                 <Bot className="w-3 h-3 shrink-0 text-fuchsia-400" />
-                <span className="truncate flex-1">{agentDisplayName(agent)}</span>
-                {def ? (
+                <span className="truncate flex-1">
+                  {agentDisplayName(agent)}
+                  {!onMachine && <span className="text-slate-500"> (not on this machine)</span>}
+                </span>
+                {editable ? (
+                  <button onClick={() => setCapEditing((a) => (a === agent ? null : agent))}
+                    aria-label={`Concurrency cap for ${agent}`}
+                    title={cap != null ? `At most ${cap} run(s) of ${agentDisplayName(agent)} at once — click to change` : "No concurrency cap — click to set one"}
+                    className={clsx("shrink-0 px-1 rounded border text-[10px] hover:bg-slate-800",
+                      cap != null ? "border-violet-800 text-violet-300" : "border-slate-800 text-slate-500")}>
+                    {cap != null ? `max ${cap}` : "no cap"}
+                  </button>
+                ) : cap != null ? (
+                  <span title={`At most ${cap} run(s) of ${agentDisplayName(agent)} at once`}
+                    className="shrink-0 px-1 rounded border border-violet-800 text-[10px] text-violet-300">max {cap}</span>
+                ) : null}
+                {!onMachine ? null : def ? (
                   <button onClick={() => onOpenAgent?.(def.id)} title={`Open agent ${def.id}`}
                     className="truncate max-w-[7rem] text-[10px] text-fuchsia-300 hover:underline">
                     {def.name || def.id}
@@ -193,6 +217,12 @@ function RunnerCard({ runner, me, now, act, onOpenAgent, onAgentAdded }: {
                   </button>
                 ) : null}
               </div>
+              {editable && capEditing === agent && (
+                <CapEditor agent={agent} value={cap}
+                  onCancel={() => setCapEditing(null)}
+                  onSave={(next) => act(() => updateRunner(runner.id, { agent_concurrency: { [agent]: next } }))
+                    .then(() => setCapEditing(null))} />
+              )}
               {limit && (
                 <p className="flex items-center gap-1 pl-4 text-[10px] text-amber-300" title={limit.message}>
                   <Gauge className="w-3 h-3 shrink-0" />
@@ -204,6 +234,34 @@ function RunnerCard({ runner, me, now, act, onOpenAgent, onAgentAdded }: {
         })}
       </ul>
     </div>
+  );
+}
+
+/** Set or clear one agent's concurrency cap on a machine; empty = no cap. */
+function CapEditor({ agent, value, onSave, onCancel }: {
+  agent: string;
+  value: number | null;
+  onSave: (next: number | null) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(value != null ? String(value) : "");
+  const parsed = text.trim() === "" ? null : Number(text);
+  const invalid = parsed !== null && (!Number.isInteger(parsed) || parsed < 1);
+  return (
+    <form className="ml-4 flex items-center gap-1 rounded border border-slate-800 bg-slate-950/40 p-1"
+      onSubmit={(e) => { e.preventDefault(); if (!invalid) onSave(parsed); }}>
+      <input type="number" min={1} step={1} aria-label={`Max concurrent runs of ${agent}`}
+        value={text} onChange={(e) => setText(e.target.value)} placeholder="no cap"
+        className="w-16 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-[11px] text-slate-200 focus:outline-none focus:border-teal-500" />
+      <button type="submit" disabled={invalid}
+        className="px-1.5 py-0.5 rounded bg-teal-700 text-[10px] text-white hover:bg-teal-600 disabled:opacity-40">Save</button>
+      {value != null && (
+        <button type="button" onClick={() => onSave(null)}
+          className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 hover:bg-slate-700">No cap</button>
+      )}
+      <button type="button" onClick={onCancel}
+        className="px-1.5 py-0.5 rounded text-[10px] text-slate-500 hover:text-slate-300">Cancel</button>
+    </form>
   );
 }
 

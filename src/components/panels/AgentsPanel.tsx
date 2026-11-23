@@ -108,7 +108,12 @@ export function AgentsPanel({
                   {a.description && (
                     <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">{a.description}</p>
                   )}
-                  <p className="text-[10px] text-slate-600 mt-1 font-mono">{a.default_runtime}</p>
+                  <p className="text-[10px] text-slate-600 mt-1 font-mono">
+                    {a.default_runtime}
+                    {a.max_concurrency != null && (
+                      <span title="Most runs of this agent at once; more queue"> · max {a.max_concurrency} at once</span>
+                    )}
+                  </p>
                 </div>
                 {canEdit(a) && (
                   <button onClick={(e) => { e.stopPropagation(); setConfirming(a); }}
