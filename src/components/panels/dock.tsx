@@ -2,13 +2,13 @@
 
 import { clsx } from "clsx";
 import {
-  BotMessageSquare, Database, Bot, Hourglass, Laptop, Library, ListOrdered, Radio, ShieldAlert, Users, Workflow, X,
+  BotMessageSquare, Boxes, Database, Bot, Hourglass, Laptop, Library, ListOrdered, Radio, ShieldAlert, Users, Workflow, X,
 } from "lucide-react";
 
 /** Every panel the left dock can show. Multiple can be open at once. */
 export type PanelId =
   | "copilot" | "runs" | "approvals" | "workflows"
-  | "agents" | "runners" | "concurrency" | "datasources" | "events" | "library" | "teams";
+  | "agents" | "runners" | "pools" | "concurrency" | "datasources" | "events" | "library" | "teams";
 
 export const PANEL_META: Record<PanelId, {
   label: string;
@@ -21,6 +21,7 @@ export const PANEL_META: Record<PanelId, {
   workflows:   { label: "Workflows",   icon: Workflow,         accent: "text-violet-400" },
   agents:      { label: "Agents",      icon: Bot,              accent: "text-fuchsia-400" },
   runners:     { label: "Runners",     icon: Laptop,           accent: "text-teal-400" },
+  pools:       { label: "Pools",       icon: Boxes,            accent: "text-teal-300" },
   concurrency: { label: "Concurrency", icon: Hourglass,        accent: "text-violet-300" },
   datasources: { label: "Datasources", icon: Database,         accent: "text-cyan-400" },
   events:      { label: "Events",      icon: Radio,            accent: "text-indigo-400" },
@@ -32,8 +33,9 @@ export const PANEL_ORDER: PanelId[] = [
   // Approvals sits next to Runs: a held deletion is a run that stopped, and
   // the badge on it is the one number somebody needs to see without looking.
   // Runners sits next to Agents: a machine is where some agents run.
+  // Pools follow runners: sets of machines' agents that team workflows run on.
   // Concurrency follows: which runs hold or wait for those agents' slots.
-  "copilot", "runs", "approvals", "workflows", "agents", "runners", "concurrency", "datasources", "events", "library", "teams",
+  "copilot", "runs", "approvals", "workflows", "agents", "runners", "pools", "concurrency", "datasources", "events", "library", "teams",
 ];
 
 /** The always-visible icon rail. Clicking an icon opens or closes its panel. */

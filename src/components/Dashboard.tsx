@@ -48,6 +48,7 @@ import { EventEditor, emptyEventDraft, eventToDraft, type EventDraft } from "./E
 import { DockRail, PanelShell, PANEL_ORDER, type PanelId } from "./panels/dock";
 import { AgentsPanel } from "./panels/AgentsPanel";
 import { RunnersPanel } from "./panels/RunnersPanel";
+import { PoolsPanel } from "./panels/PoolsPanel";
 import { ConcurrencyPanel } from "./panels/ConcurrencyPanel";
 import { ApproveRunnerDialog, ConnectRunnerDialog, useApproveRunnerDeepLink } from "./RunnerDialogs";
 import { ApprovalsPanel } from "./panels/ApprovalsPanel";
@@ -855,6 +856,8 @@ export function Dashboard() {
             reloadToken={runnersToken}
           />
         );
+      case "pools":
+        return <PoolsPanel key={id} onClose={() => closePanel(id)} reloadToken={agentsToken} />;
       case "concurrency":
         return (
           <ConcurrencyPanel

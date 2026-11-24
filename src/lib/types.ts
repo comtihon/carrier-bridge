@@ -697,7 +697,8 @@ export interface EditableNodeConfig {
   /** Event schema as typed — kept as text so a half-written JSON object edits. */
   event_schema_text?: string;
   // ── http trigger (inbound webhook) ───────────────────────────────────────
-  auth_mode?: "hmac" | "bearer";
+  /** "any": a valid bearer token or a valid HMAC signature. */
+  auth_mode?: "hmac" | "bearer" | "any";
   webhook_secret?: string;
   bearer_token?: string;
   // ── http_call (outbound HTTP request) ────────────────────────────────────

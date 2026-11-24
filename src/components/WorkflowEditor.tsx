@@ -31,7 +31,7 @@ import { useEvents } from "@/hooks/useEvents";
 import { useDatasources } from "@/hooks/useDatasources";
 import { DatasourceParamsEditor } from "@/components/DatasourceParamsEditor";
 import { agentDisplayName } from "@/lib/runners";
-import { fetchWorkflows, listRunners, type AgentRuntime, type Runner, listAgents, getAgent, createAgent, updateAgent, updateAgentAddons, deleteAgent, listMcpIntegrations, listAgentTools, type AgentToolInfo, type AgentDefinition, type McpIntegration, listDatasources, createDatasource, updateDatasource, deleteDatasource, probeDatasource, tryDatasourceOperation, fetchDatasourceSchema, uploadDatasourceSchema, listConfigKeys, listServiceIdentities, getGoogleSheetsTemplate, DATASOURCE_SECRET_REDACTED, type GoogleSheetsTemplate, type DataSourceDefinition, type DataSourceKind, type DataSourceAuth, type DataSourceAuthWrite, type ServiceIdentitiesResponse, type DataSourceOperation, type DataSourceParamSpec, type DiscoveredSchema, type SchemaImportResult, type TryOperationDestructivePlan, listEvents, createEvent, updateEvent, deleteEvent, EventNameConflictError, type EventDefinition } from "@/lib/api";
+import { fetchWorkflows, listRunners, listRuntimePools, type RuntimePool, type AgentRuntime, type Runner, listAgents, getAgent, createAgent, updateAgent, updateAgentAddons, deleteAgent, listMcpIntegrations, listAgentTools, type AgentToolInfo, type AgentDefinition, type McpIntegration, listDatasources, createDatasource, updateDatasource, deleteDatasource, probeDatasource, tryDatasourceOperation, fetchDatasourceSchema, uploadDatasourceSchema, listConfigKeys, listServiceIdentities, getGoogleSheetsTemplate, DATASOURCE_SECRET_REDACTED, type GoogleSheetsTemplate, type DataSourceDefinition, type DataSourceKind, type DataSourceAuth, type DataSourceAuthWrite, type ServiceIdentitiesResponse, type DataSourceOperation, type DataSourceParamSpec, type DiscoveredSchema, type SchemaImportResult, type TryOperationDestructivePlan, listEvents, createEvent, updateEvent, deleteEvent, EventNameConflictError, type EventDefinition } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/config";
 import { PythonStepFields } from "./PythonStepFields";
 import { DataStepFields, dataStepProblem } from "./DataStepFields";
@@ -400,7 +400,7 @@ export function apiStepToConfig(step: Record<string, unknown>): EditableNodeConf
     datasource:           step.datasource as string | undefined,
     project_id:           step.project_id as string | undefined,
     event_schema_text:    step.schema ? JSON.stringify(step.schema, null, 2) : undefined,
-    auth_mode:            step.auth_mode as "hmac" | "bearer" | undefined,
+    auth_mode:            step.auth_mode as "hmac" | "bearer" | "any" | undefined,
     webhook_secret:       step.webhook_secret as string | undefined,
     bearer_token:         step.bearer_token as string | undefined,
     url:                  step.url as string | undefined,
@@ -2430,24 +2430,26 @@ function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTog
             <PropField label="Auth Mode">
               <select value={config.auth_mode ?? "hmac"}
                 onChange={(e) => onChange(node.id, {
-                  auth_mode: e.target.value as "hmac" | "bearer",
+                  auth_mode: e.target.value as "hmac" | "bearer" | "any",
                   webhook_secret: undefined,
                   bearer_token: undefined,
                 })}
                 className={inputCls}>
-                <option value="hmac">HMAC-SHA256 (X-Webhook-Signature)</option>
-                <option value="bearer">Bearer Token (Authorization header)</option>
+                <option value="hmac">HMAC-SHA256 signature (carrier, gbrain, Jira system webhooks, GitHub)</option>
+                <option value="bearer">Bearer Token (Authorization header, e.g. Jira Automation)</option>
+                <option value="any">Either: bearer token or HMAC signature</option>
               </select>
             </PropField>
-            {(config.auth_mode ?? "hmac") === "hmac" && (
-              <PropField label="Webhook Secret" hint="Falls back to global WEBHOOK_SECRET if blank">
+            {(config.auth_mode ?? "hmac") !== "bearer" && (
+              <PropField label="Webhook Secret"
+                hint="Signature header: X-Webhook-Signature, X-Gbrain-Signature, X-Hub-Signature or X-Hub-Signature-256 (hex or sha256=hex). Falls back to global WEBHOOK_SECRET if blank">
                 <input type="password" value={config.webhook_secret ?? ""}
                   onChange={(e) => onChange(node.id, { webhook_secret: e.target.value })}
                   placeholder="Leave blank to use global WEBHOOK_SECRET"
                   className={`${inputCls} font-mono`} />
               </PropField>
             )}
-            {config.auth_mode === "bearer" && (
+            {(config.auth_mode === "bearer" || config.auth_mode === "any") && (
               <PropField label="Bearer Token" hint="Caller must send: Authorization: Bearer <token>">
                 <input type="password" value={config.bearer_token ?? ""}
                   onChange={(e) => onChange(node.id, { bearer_token: e.target.value })}
@@ -3644,6 +3646,21 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
     return () => { live = false; };
   }, [onRunner, runners]);
   const runner = runners?.find((r) => r.id === runnerId) ?? null;
+  // Pool runtime: the runtime pool whose members run the agent; the member
+  // decides the machine and its ACP agent.
+  const [poolId, setPoolId]                 = useState(agent?.pool_id ?? "");
+  const [pools, setPools]                   = useState<RuntimePool[] | null>(null);
+  const [poolsError, setPoolsError]         = useState<string | null>(null);
+  const onPool = defaultRuntime === "pool";
+  useEffect(() => {
+    if (!onPool || pools) return;
+    let live = true;
+    listRuntimePools()
+      .then((p) => { if (live) setPools(p); })
+      .catch((err) => { if (live) { setPools([]); setPoolsError(err instanceof Error ? err.message : "Failed to load runtime pools"); } });
+    return () => { live = false; };
+  }, [onPool, pools]);
+  const pool = pools?.find((p) => p.id === poolId) ?? null;
   const [helmChart, setHelmChart]           = useState(agent?.helm_chart ?? "");
   const [helmValuesText, setHelmValuesText] = useState(
     agent?.helm_values
@@ -3664,6 +3681,10 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
     }
     if (onRunner && !runnerId) {
       setError("Choose the machine this agent runs on.");
+      return;
+    }
+    if (onPool && !poolId) {
+      setError("Choose the runtime pool this agent runs on.");
       return;
     }
     if (maxConcurrency !== "" && (!Number.isInteger(maxConcurrency) || maxConcurrency < 1)) {
@@ -3700,9 +3721,11 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
         helm_chart: defaultRuntime === "k8s" ? (helmChart.trim() || null) : null,
         helm_values: defaultRuntime === "k8s" ? helmValuesParsed : {},
         // A runner agent always speaks ACP: the machine's proxy is an ACP proxy.
-        protocol: onRunner ? "acp" as const : protocol,
-        acp_agent: onRunner || protocol === "acp" ? (acpAgent.trim() || null) : null,
+        // Pool members are runner agents, so a pool agent speaks ACP too.
+        protocol: onRunner || onPool ? "acp" as const : protocol,
+        acp_agent: onPool ? null : onRunner || protocol === "acp" ? (acpAgent.trim() || null) : null,
         runner_id: onRunner ? runnerId : null,
+        pool_id: onPool ? poolId : null,
         brain_access: brainAccess,
         max_concurrency: maxConcurrency === "" ? null : maxConcurrency,
         ...access.payload,
@@ -3820,7 +3843,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
           className={dsFieldCls}
         />
       </div>
-      {!onRunner && <div className="space-y-1.5">
+      {!onRunner && !onPool && <div className="space-y-1.5">
         <label className="text-xs font-medium text-slate-400">
           Protocol <span className="text-slate-500 font-normal">— how carrier talks to the agent process</span>
         </label>
@@ -3833,7 +3856,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
           <option value="acp">ACP over WebSocket (acp-web-proxy)</option>
         </select>
       </div>}
-      {!onRunner && protocol === "acp" && (
+      {!onRunner && !onPool && protocol === "acp" && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-400">
             ACP agent <span className="text-slate-500 font-normal">— name in the proxy config, e.g. pi, claude, codex; empty = proxy default</span>
@@ -3857,8 +3880,32 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
           <option value="docker">docker</option>
           <option value="k8s">k8s</option>
           <option value="runner">runner (a connected machine)</option>
+          <option value="pool">pool (the next free machine of a runtime pool)</option>
         </select>
       </div>
+      {onPool && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-400">
+            Runtime pool <span className="text-slate-500 font-normal">— each run keeps one member for all its steps</span>
+          </label>
+          <select
+            aria-label="Runtime pool"
+            value={poolId}
+            onChange={(e) => setPoolId(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-sky-500"
+          >
+            <option value="">{pools ? "— select a pool —" : "loading…"}</option>
+            {(pools ?? []).map((p) => (
+              <option key={p.id} value={p.id}>{p.name || p.id} ({p.online_count}/{p.member_count} online)</option>
+            ))}
+            {poolId && pools && !pool && <option value={poolId}>{poolId} (unknown)</option>}
+          </select>
+          {poolsError && <p className="text-[11px] text-red-400">{poolsError}</p>}
+          {pool && pool.member_count === 0 && (
+            <p className="text-[11px] text-amber-300">This pool has no members yet: owners add their machines&apos; agents in the Pools panel.</p>
+          )}
+        </div>
+      )}
       {onRunner && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-400">
@@ -3915,7 +3962,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
           placeholder="unlimited"
           className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500"
         />
-        {onRunner && (
+        {(onRunner || onPool) && (
           <p className="text-[11px] text-slate-500">
             The machine&apos;s own cap for this agent (Runners panel) also applies; the lower one wins.
           </p>
