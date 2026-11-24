@@ -1,3 +1,5 @@
+import type { RuntimeSelection } from "./agentUsage";
+import type { AgentAddonEntry } from "./api";
 // ─── Trace types ─────────────────────────────────────────────────────────────
 
 export interface TraceLlmCall {
@@ -319,6 +321,10 @@ export interface PoolAgent {
   max_instances?: number;
   /** Empty = the agent may fill any category. */
   categories?: JobCategory[];
+  /** Where this agent's jobs run in this workflow; omitted = the agent's default runtime. */
+  runtime?: RuntimeSelection;
+  /** Addons for this workflow's use, overriding the agent's own of the same type. */
+  addons?: AgentAddonEntry[];
 }
 
 export interface JobSlot { min: number; max: number }
@@ -341,6 +347,10 @@ export interface DynamicStepConfig {
   repo?: { url: string; base_branch?: string; verify?: string[] } | null;
   output_key?: string | null;
   request_template?: string;
+  /** Slack addon: open decisions (plan, rearrange, questions) go to Slack with Approve / Reject. */
+  slack_notifications?: boolean;
+  /** Channel id; empty = carrier's default approvals channel. */
+  slack_channel?: string;
 }
 
 export type DynamicJobStatus = "pending" | "running" | "finished" | "failed" | "waiting" | "skipped" | "cancelled";
@@ -787,6 +797,10 @@ export interface EditableNodeConfig {
   // ── langgraph-agent ──────────────────────────────────────────────────────
   agent_id?: string;
   runtime_override?: "local" | "docker" | "k8s";
+  /** Where this use of the agent runs (overrides runtime_override); omitted = the agent's default. */
+  runtime?: RuntimeSelection;
+  /** Addons for this use, overriding the agent's own of the same type. */
+  addons?: AgentAddonEntry[];
   image?: string;
   helm_chart?: string;
   health_timeout?: number;

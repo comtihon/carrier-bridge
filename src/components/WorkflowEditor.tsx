@@ -31,6 +31,9 @@ import { useEvents } from "@/hooks/useEvents";
 import { useDatasources } from "@/hooks/useDatasources";
 import { DatasourceParamsEditor } from "@/components/DatasourceParamsEditor";
 import { agentDisplayName } from "@/lib/runners";
+import { RuntimeSelect } from "./RuntimeSelect";
+import { AddonsEditor } from "./AddonsEditor";
+import { roleAgents, type RuntimeSelection } from "@/lib/agentUsage";
 import { fetchWorkflows, listRunners, listRuntimePools, type RuntimePool, type AgentRuntime, type Runner, listAgents, getAgent, createAgent, updateAgent, updateAgentAddons, deleteAgent, listMcpIntegrations, listAgentTools, type AgentToolInfo, type AgentDefinition, type McpIntegration, listDatasources, createDatasource, updateDatasource, deleteDatasource, probeDatasource, tryDatasourceOperation, fetchDatasourceSchema, uploadDatasourceSchema, listConfigKeys, listServiceIdentities, getGoogleSheetsTemplate, DATASOURCE_SECRET_REDACTED, type GoogleSheetsTemplate, type DataSourceDefinition, type DataSourceKind, type DataSourceAuth, type DataSourceAuthWrite, type ServiceIdentitiesResponse, type DataSourceOperation, type DataSourceParamSpec, type DiscoveredSchema, type SchemaImportResult, type TryOperationDestructivePlan, listEvents, createEvent, updateEvent, deleteEvent, EventNameConflictError, type EventDefinition } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/config";
 import { PythonStepFields } from "./PythonStepFields";
@@ -259,7 +262,9 @@ export function configToApiStep(config: EditableNodeConfig): Record<string, unkn
       break;
     case "langgraph-agent":
       if (config.agent_id)         step.agent_id         = config.agent_id;
-      if (config.runtime_override) step.runtime_override = config.runtime_override;
+      if (config.runtime && config.runtime.kind !== "default") step.runtime = config.runtime;
+      else if (config.runtime_override) step.runtime_override = config.runtime_override;
+      if (config.addons && config.addons.length > 0) step.addons = config.addons;
       if (config.image)            step.image            = config.image;
       if (config.helm_chart)       step.helm_chart       = config.helm_chart;
       if (config.output_mapping && Object.keys(config.output_mapping).length > 0) step.output_mapping = config.output_mapping;
@@ -420,6 +425,10 @@ export function apiStepToConfig(step: Record<string, unknown>): EditableNodeConf
     failure_policy:       step.failure_policy as 'and' | 'or' | undefined,
     agent_id:             step.agent_id as string | undefined,
     runtime_override:     step.runtime_override as "local" | "docker" | "k8s" | undefined,
+    // A legacy runtime_override reads back as the equivalent runtime selection.
+    runtime:              (step.runtime as RuntimeSelection | undefined)
+      ?? (step.runtime_override ? { kind: step.runtime_override as RuntimeSelection["kind"] } : undefined),
+    addons:               step.addons as import("@/lib/api").AgentAddonEntry[] | undefined,
     image:                step.image as string | undefined,
     helm_chart:           step.helm_chart as string | undefined,
     compression_level:    (step.compression_level as "none" | "lite" | "full" | "ultra" | undefined) ?? "none",
@@ -2531,15 +2540,23 @@ function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTog
                 placeholder="e.g. my-agent"
                 className={`${inputCls} font-mono`} />
             </PropField>
-            <PropField label="Runtime override" hint="Leave blank to use the agent's default runtime">
-              <select value={config.runtime_override ?? ""}
-                onChange={(e) => onChange(node.id, { runtime_override: (e.target.value || undefined) as "local" | "docker" | "k8s" | undefined })}
-                className={inputCls}>
-                <option value="">— agent default —</option>
-                <option value="local">local</option>
-                <option value="docker">docker</option>
-                <option value="k8s">k8s</option>
-              </select>
+            <PropField label="Runtime" hint="Where this step runs the agent: its default runtime, a runtime, a connected machine or a runtime pool">
+              <RuntimeSelect
+                value={config.runtime}
+                onChange={(runtime) => onChange(node.id, {
+                  runtime,
+                  runtime_override: runtime && ["local", "docker", "k8s"].includes(runtime.kind)
+                    ? runtime.kind as "local" | "docker" | "k8s" : undefined,
+                })}
+                className={inputCls}
+              />
+            </PropField>
+            <PropField label="Addons for this step" hint="Override the agent's own addons of the same type for this step only">
+              <AddonsEditor
+                overrides
+                value={config.addons ?? []}
+                onChange={(addons) => onChange(node.id, { addons: addons.length ? addons : undefined })}
+              />
             </PropField>
             {config.runtime_override === "docker" && (
               <PropField label="Image">
@@ -3641,6 +3658,8 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
   // Runner runtime: the machine, and which of its agents (kept in `acpAgent`).
   const [runnerId, setRunnerId]             = useState(agent?.runner_id ?? "");
   const [brainAccess, setBrainAccess]       = useState<BrainAccess>(brainAccessOf(agent?.brain_access));
+  // The agent's own addons: MCP servers, tools, workspace storage, data sources.
+  const [addons, setAddons]                 = useState<import("@/lib/api").AgentAddonEntry[]>(agent?.addons ?? []);
   // Empty = unlimited.
   const [maxConcurrency, setMaxConcurrency] = useState<number | "">(agent?.max_concurrency ?? "");
   const [runners, setRunners]               = useState<Runner[] | null>(null);
@@ -3737,6 +3756,7 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
         pool_id: onPool ? poolId : null,
         brain_access: brainAccess,
         max_concurrency: maxConcurrency === "" ? null : maxConcurrency,
+        addons,
         ...access.payload,
       };
       onSave(isEdit
@@ -3959,6 +3979,12 @@ export function AgentModal({ agent, onSave, onClose, surface = "modal" }: AgentM
           </select>
         </div>
       )}
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-slate-400">
+          Addons <span className="text-slate-500 font-normal">— MCP servers, tools, workspace storage and data sources this agent gets everywhere; a workflow can override them per use</span>
+        </label>
+        <AddonsEditor value={addons} onChange={setAddons} disabled={readOnly} />
+      </div>
       <div className="space-y-1.5">
         <label htmlFor="agent-max-concurrency" className="text-xs font-medium text-slate-400">
           Max concurrent runs <span className="text-slate-500 font-normal">— across all workflows and users; empty = unlimited, more runs queue</span>
@@ -5570,7 +5596,8 @@ function NodePalette({ onAdd, onAddAgent, onAddDatasource, onAddEvent, onAddAddo
     try {
       // Agents granted to this workflow are offered here, and only here.
       const list = await listAgents(scope?.workflowId);
-      setAgents(list);
+      // Roles only: a machine's own agent is a runtime, picked per step (Runtime).
+      setAgents(roleAgents(list));
     } catch (err) {
       setAgentsError(err instanceof Error ? err.message : "Failed to load agents");
     } finally {

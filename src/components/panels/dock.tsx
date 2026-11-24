@@ -20,7 +20,7 @@ export const PANEL_META: Record<PanelId, {
   approvals:   { label: "Approvals",   icon: ShieldAlert,      accent: "text-amber-400" },
   workflows:   { label: "Workflows",   icon: Workflow,         accent: "text-violet-400" },
   agents:      { label: "Agents",      icon: Bot,              accent: "text-fuchsia-400" },
-  runners:     { label: "Runners",     icon: Laptop,           accent: "text-teal-400" },
+  runners:     { label: "Runtimes",    icon: Laptop,           accent: "text-teal-400" },
   pools:       { label: "Pools",       icon: Boxes,            accent: "text-teal-300" },
   concurrency: { label: "Concurrency", icon: Hourglass,        accent: "text-violet-300" },
   datasources: { label: "Datasources", icon: Database,         accent: "text-cyan-400" },
@@ -33,9 +33,9 @@ export const PANEL_ORDER: PanelId[] = [
   // Approvals sits next to Runs: a held deletion is a run that stopped, and
   // the badge on it is the one number somebody needs to see without looking.
   // Runners sits next to Agents: a machine is where some agents run.
-  // Pools follow runners: sets of machines' agents that team workflows run on.
+  // Runtimes (machines and runtime pools) follow Agents: where agents run.
   // Concurrency follows: which runs hold or wait for those agents' slots.
-  "copilot", "runs", "approvals", "workflows", "agents", "runners", "pools", "concurrency", "datasources", "events", "library", "teams",
+  "copilot", "runs", "approvals", "workflows", "agents", "runners", "concurrency", "datasources", "events", "library", "teams",
 ];
 
 /** The always-visible icon rail. Clicking an icon opens or closes its panel. */
@@ -111,5 +111,29 @@ export function PanelShell({ id, onClose, actions, children, bare = false }: {
       )}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{children}</div>
     </aside>
+  );
+}
+
+/**
+ * A panel's chrome when it stands alone in the dock, or a titled section when
+ * it is embedded in another panel (Runtimes shows machines and pools together).
+ */
+export function PanelOrSection({ id, onClose, actions, embedded, title, children }: {
+  id: PanelId;
+  onClose: () => void;
+  actions?: React.ReactNode;
+  embedded?: boolean;
+  title: string;
+  children: React.ReactNode;
+}) {
+  if (!embedded) return <PanelShell id={id} onClose={onClose} actions={actions}>{children}</PanelShell>;
+  return (
+    <section className="flex flex-col border-b border-slate-800" data-testid={`section-${id}`}>
+      <div className="flex items-center gap-2 px-3 pt-3 pb-1">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 flex-1">{title}</span>
+        {actions}
+      </div>
+      {children}
+    </section>
   );
 }
