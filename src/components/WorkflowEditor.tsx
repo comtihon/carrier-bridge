@@ -233,6 +233,7 @@ export function configToApiStep(config: EditableNodeConfig): Record<string, unkn
     case "http":
       if (config.auth_mode)      step.auth_mode      = config.auth_mode;
       if (config.webhook_secret) step.webhook_secret = config.webhook_secret;
+      if (config.signature_header) step.signature_header = config.signature_header;
       if (config.bearer_token)   step.bearer_token   = config.bearer_token;
       if (config.output_key)     step.output_key     = config.output_key;
       break;
@@ -402,6 +403,7 @@ export function apiStepToConfig(step: Record<string, unknown>): EditableNodeConf
     event_schema_text:    step.schema ? JSON.stringify(step.schema, null, 2) : undefined,
     auth_mode:            step.auth_mode as "hmac" | "bearer" | "any" | undefined,
     webhook_secret:       step.webhook_secret as string | undefined,
+    signature_header:     step.signature_header as string | undefined,
     bearer_token:         step.bearer_token as string | undefined,
     url:                  step.url as string | undefined,
     method:               step.method as EditableNodeConfig["method"] | undefined,
@@ -2435,17 +2437,24 @@ function NodePropertiesPanel({ node, onChange, onDelete, readonly, pinned, onTog
                   bearer_token: undefined,
                 })}
                 className={inputCls}>
-                <option value="hmac">HMAC-SHA256 signature (carrier, gbrain, Jira system webhooks, GitHub)</option>
-                <option value="bearer">Bearer Token (Authorization header, e.g. Jira Automation)</option>
+                <option value="hmac">HMAC-SHA256 signature (signature header)</option>
+                <option value="bearer">Bearer Token (Authorization header)</option>
                 <option value="any">Either: bearer token or HMAC signature</option>
               </select>
             </PropField>
             {(config.auth_mode ?? "hmac") !== "bearer" && (
-              <PropField label="Webhook Secret"
-                hint="Signature header: X-Webhook-Signature, X-Gbrain-Signature, X-Hub-Signature or X-Hub-Signature-256 (hex or sha256=hex). Falls back to global WEBHOOK_SECRET if blank">
+              <PropField label="Webhook Secret" hint="Falls back to global WEBHOOK_SECRET if blank">
                 <input type="password" value={config.webhook_secret ?? ""}
                   onChange={(e) => onChange(node.id, { webhook_secret: e.target.value })}
                   placeholder="Leave blank to use global WEBHOOK_SECRET"
+                  className={`${inputCls} font-mono`} />
+              </PropField>
+            )}
+            {(config.auth_mode ?? "hmac") !== "bearer" && (
+              <PropField label="Signature Header" hint="Header carrying HMAC-SHA256 of the body (hex or sha256=hex)">
+                <input type="text" value={config.signature_header ?? ""}
+                  onChange={(e) => onChange(node.id, { signature_header: e.target.value || undefined })}
+                  placeholder="X-Webhook-Signature"
                   className={`${inputCls} font-mono`} />
               </PropField>
             )}

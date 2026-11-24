@@ -700,6 +700,8 @@ export interface EditableNodeConfig {
   /** "any": a valid bearer token or a valid HMAC signature. */
   auth_mode?: "hmac" | "bearer" | "any";
   webhook_secret?: string;
+  /** Header carrying the HMAC signature; default X-Webhook-Signature. */
+  signature_header?: string;
   bearer_token?: string;
   // ── http_call (outbound HTTP request) ────────────────────────────────────
   url?: string;
