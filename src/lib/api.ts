@@ -560,13 +560,15 @@ export interface AgentDefinition extends Ownership, Sharing {
   acp_agent?: string | null;
   /** Runner agents only: the machine it runs on; `acp_agent` names the agent there. */
   runner_id?: string | null;
+  /** Pool agents only: the runtime pool whose members run it. */
+  pool_id?: string | null;
   /** Shared company memory (gbrain); capped by the workflow's own setting. Absent = "none". */
   brain_access?: BrainAccess;
   /** Runs of this agent allowed at once, across every workflow and user; null = unlimited. */
   max_concurrency?: number | null;
 }
 
-export type AgentRuntime = "local" | "docker" | "k8s" | "runner";
+export type AgentRuntime = "local" | "docker" | "k8s" | "runner" | "pool";
 
 export interface AgentCreateRequest {
   id: string;
@@ -581,6 +583,7 @@ export interface AgentCreateRequest {
   protocol?: "http-poll" | "acp";
   acp_agent?: string | null;
   runner_id?: string | null;
+  pool_id?: string | null;
   brain_access?: BrainAccess;
   /** >= 1; null = unlimited. On update, omitted keeps the stored value. */
   max_concurrency?: number | null;
@@ -599,6 +602,7 @@ export interface AgentUpdateRequest {
   protocol?: "http-poll" | "acp";
   acp_agent?: string | null;
   runner_id?: string | null;
+  pool_id?: string | null;
   brain_access?: BrainAccess;
   /** >= 1; null = unlimited. On update, omitted keeps the stored value. */
   max_concurrency?: number | null;
@@ -2310,4 +2314,85 @@ export async function downloadRunDataZip(runId: string): Promise<void> {
     throw apiError(res.status, await res.text().catch(() => ""), res.statusText);
   }
   await saveResponseAsFile(res, `${runId}-data.zip`);
+}
+
+// ─── Runtime pools ───────────────────────────────────────────────────────────
+
+/**
+ * One member of a runtime pool: a runner agent (on someone's machine), shown
+ * by name and owner only — a private member's definition stays its owner's.
+ */
+export interface RuntimePoolMember {
+  agent_id: string;
+  name: string | null;
+  owner_name: string | null;
+  visibility: Visibility | null;
+  runner_name: string | null;
+  acp_agent: string | null;
+  online: boolean;
+  /** False when the agent or its machine no longer exists. */
+  usable: boolean;
+  /** Out of quota until then ("unknown": no reset time); null = in quota. */
+  limited_until: string | null;
+  added_by_name: string | null;
+  added_at: string | null;
+  /** Unfinished runs that use this member. */
+  runs: Array<{ run_id: string; assigned_at: string; run_status: string | null }>;
+}
+
+/**
+ * A runtime pool: runner agents (private ones included) that pool agents
+ * (`default_runtime: "pool"`) run on. Each workflow run takes the next online
+ * member round robin and keeps it for all its steps; it moves on only when
+ * that member goes offline.
+ */
+export interface RuntimePool extends Ownership {
+  id: string;
+  name: string;
+  description: string | null;
+  members: RuntimePoolMember[];
+  member_count: number;
+  /** Members online now. */
+  online_count: number;
+  /** Members online and in quota now. */
+  available_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+const POOLS = "/runtime-pools";
+
+export async function listRuntimePools(): Promise<RuntimePool[]> {
+  return request<RuntimePool[]>(POOLS);
+}
+
+export async function createRuntimePool(payload: {
+  id: string; name?: string; description?: string | null; visibility?: Visibility; team_id?: string;
+}): Promise<RuntimePool> {
+  return request<RuntimePool>(POOLS, { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function updateRuntimePool(id: string, payload: {
+  name?: string; description?: string | null; visibility?: Visibility; team_id?: string;
+}): Promise<RuntimePool> {
+  return request<RuntimePool>(`${POOLS}/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+
+/** Refused (409) while an agent runs on the pool. */
+export async function deleteRuntimePool(id: string): Promise<void> {
+  await request<void>(`${POOLS}/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Add one of YOUR runner agents: workflows using the pool may then run on its machine. */
+export async function joinRuntimePool(id: string, agentId: string): Promise<RuntimePool> {
+  return request<RuntimePool>(`${POOLS}/${encodeURIComponent(id)}/members`, {
+    method: "POST", body: JSON.stringify({ agent_id: agentId }),
+  });
+}
+
+/** The agent's owner, whoever may edit the pool, or its team's admins. */
+export async function leaveRuntimePool(id: string, agentId: string): Promise<RuntimePool> {
+  return request<RuntimePool>(`${POOLS}/${encodeURIComponent(id)}/members/${encodeURIComponent(agentId)}`, {
+    method: "DELETE",
+  });
 }

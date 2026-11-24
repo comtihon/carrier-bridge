@@ -7,6 +7,7 @@ vi.mock("@/lib/api", async () => {
     ...actual,
     updateAgent: vi.fn(async (id: string, p: Record<string, unknown>) => ({ id, ...p })),
     listRunners: vi.fn(async () => []),
+    listRuntimePools: vi.fn(async () => []),
     listLlmProviders: vi.fn(async () => []),
   };
 });
@@ -96,5 +97,28 @@ describe("agent on a runner", () => {
       default_runtime: "k8s", runner_id: null, protocol: "http-poll",
     }));
     expect(api.listRunners).not.toHaveBeenCalled();
+  });
+
+  it("runs on a runtime pool: saves the pool, ACP, and no machine of its own", async () => {
+    vi.mocked(api.listRuntimePools).mockResolvedValue([{
+      id: "eng", name: "Engineering", description: null, members: [], member_count: 3, online_count: 2,
+      available_count: 2, visibility: "team", owner_id: "u", owner_name: "U", team_id: "t", team_name: "T",
+    }]);
+    const onSave = vi.fn();
+    render(<AgentModal agent={agent} onSave={onSave} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Default Runtime"), { target: { value: "pool" } });
+    expect(await screen.findByRole("option", { name: "Engineering (2/3 online)" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Protocol")).toBeNull();
+    expect(screen.queryByLabelText("Runner")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    expect(await screen.findByText("Choose the runtime pool this agent runs on.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Runtime pool"), { target: { value: "eng" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(api.updateAgent).toHaveBeenCalledWith("pi", expect.objectContaining({
+      default_runtime: "pool", pool_id: "eng", protocol: "acp", runner_id: null, acp_agent: null,
+    }));
   });
 });
