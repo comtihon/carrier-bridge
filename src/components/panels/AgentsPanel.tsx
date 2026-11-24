@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Bot, Loader2, Plus, Trash2 } from "lucide-react";
 import { clsx } from "clsx";
 import { deleteAgent, listAgentSummaries, type AgentSummary } from "@/lib/api";
+import { roleAgents } from "@/lib/agentUsage";
 import { PanelShell } from "./dock";
 import { PrivateBadge, canEdit } from "../Visibility";
 import { accessLabel } from "../ResourceGrants";
@@ -37,7 +38,9 @@ export function AgentsPanel({
     setLoading(true);
     setError(null);
     try {
-      setAgents(await listAgentSummaries());
+      // Roles only: a machine's own agent (no prompt, added from the Runners
+      // panel) is a runtime and is listed under Runtimes.
+      setAgents(roleAgents(await listAgentSummaries()));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load agents");
     } finally {
@@ -109,7 +112,7 @@ export function AgentsPanel({
                     <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">{a.description}</p>
                   )}
                   <p className="text-[10px] text-slate-600 mt-1 font-mono">
-                    {a.default_runtime}
+                    {a.default_runtime}{a.default_runtime === "pool" && a.pool_id ? `: ${a.pool_id}` : ""}
                     {a.max_concurrency != null && (
                       <span title="Most runs of this agent at once; more queue"> · max {a.max_concurrency} at once</span>
                     )}

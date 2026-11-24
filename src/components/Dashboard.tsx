@@ -47,8 +47,9 @@ import { AdminView, type AdminTab } from "./admin/AdminView";
 import { EventEditor, emptyEventDraft, eventToDraft, type EventDraft } from "./EventEditor";
 import { DockRail, PanelShell, PANEL_ORDER, type PanelId } from "./panels/dock";
 import { AgentsPanel } from "./panels/AgentsPanel";
-import { RunnersPanel } from "./panels/RunnersPanel";
 import { PoolsPanel } from "./panels/PoolsPanel";
+import { RuntimesPanel } from "./panels/RuntimesPanel";
+import { useRunDeepLink } from "@/lib/runDeepLink";
 import { ConcurrencyPanel } from "./panels/ConcurrencyPanel";
 import { ApproveRunnerDialog, ConnectRunnerDialog, useApproveRunnerDeepLink } from "./RunnerDialogs";
 import { ApprovalsPanel } from "./panels/ApprovalsPanel";
@@ -447,6 +448,9 @@ export function Dashboard() {
     setCenter("run");
     openPanel("runs");
   }, [addRunId, openPanel]);
+
+  // `<UI>/#run=<id>` (carrier's Slack decision messages link here) opens that run.
+  useRunDeepLink(handleOpenApprovalRun);
 
   const pendingApprovals = runIds
     .map((id) => runs[id])
@@ -847,7 +851,7 @@ export function Dashboard() {
         );
       case "runners":
         return (
-          <RunnersPanel
+          <RuntimesPanel
             key={id}
             onClose={() => closePanel(id)}
             onConnect={() => setRunnerDialog("connect")}

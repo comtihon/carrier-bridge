@@ -616,7 +616,13 @@ export async function listAgents(workflowId?: string | null): Promise<AgentDefin
 
 /** What a list of agents draws: no `agent_input` (the system prompt), no addons. */
 export type AgentSummary =
-  Pick<AgentDefinition, "id" | "name" | "description" | "default_runtime" | "max_concurrency"> & Ownership & Sharing;
+  Pick<AgentDefinition, "id" | "name" | "description" | "default_runtime" | "max_concurrency"> & Ownership & Sharing & {
+    runner_id?: string | null;
+    pool_id?: string | null;
+    acp_agent?: string | null;
+    /** False for a machine's own agent (added from the Runners panel): a runtime, not a role. */
+    has_prompt?: boolean;
+  };
 
 /**
  * Agents without the parts only the editor reads.
@@ -2328,6 +2334,8 @@ export interface RuntimePoolMember {
   owner_name: string | null;
   visibility: Visibility | null;
   runner_name: string | null;
+  /** The member's runner OS (`linux`, `win32`, `darwin`). */
+  platform?: string | null;
   acp_agent: string | null;
   online: boolean;
   /** False when the agent or its machine no longer exists. */
@@ -2356,6 +2364,11 @@ export interface RuntimePool extends Ownership {
   online_count: number;
   /** Members online and in quota now. */
   available_count: number;
+  /** Usable members per runner OS, e.g. `{linux: 2, win32: 1}`. */
+  platforms?: Record<string, number>;
+  /** Usable members per ACP agent, e.g. `{claude: 3, codex: 1}`; `agents_online` counts the online ones. */
+  agents?: Record<string, number>;
+  agents_online?: Record<string, number>;
   created_at?: string | null;
   updated_at?: string | null;
 }

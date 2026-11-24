@@ -9,7 +9,8 @@ import {
   type AgentDefinition, type CurrentUser, type RuntimePool, type Visibility,
 } from "@/lib/api";
 import { agentDisplayName, formatClock } from "@/lib/runners";
-import { PanelShell } from "./dock";
+import { countsText, platformLabel } from "@/lib/agentUsage";
+import { PanelOrSection } from "./dock";
 import { VisibilityBadge, VisibilityControl, canEdit, useCurrentUser, useTeams } from "../Visibility";
 
 /**
@@ -26,9 +27,11 @@ import { VisibilityBadge, VisibilityControl, canEdit, useCurrentUser, useTeams }
 
 const RELOAD_MS = 15_000;
 
-export function PoolsPanel({ onClose, reloadToken }: {
+export function PoolsPanel({ onClose, reloadToken, embedded }: {
   onClose: () => void;
   reloadToken?: number;
+  /** Shown as a section of the Runtimes panel rather than a panel of its own. */
+  embedded?: boolean;
 }) {
   const me = useCurrentUser();
   const [pools, setPools] = useState<RuntimePool[]>([]);
@@ -74,8 +77,10 @@ export function PoolsPanel({ onClose, reloadToken }: {
   const ownAgents = mine.filter((a) => !me?.sub || !a.owner_id || a.owner_id === me.sub);
 
   return (
-    <PanelShell
+    <PanelOrSection
       id="pools"
+      title="Runtime pools"
+      embedded={embedded}
       onClose={onClose}
       actions={
         <button onClick={() => setCreating((v) => !v)}
@@ -111,7 +116,7 @@ export function PoolsPanel({ onClose, reloadToken }: {
         ))}
         {loading && pools.length > 0 && <Loader2 className="w-3 h-3 mx-auto text-slate-600 animate-spin" />}
       </div>
-    </PanelShell>
+    </PanelOrSection>
   );
 }
 
@@ -148,6 +153,16 @@ function PoolCard({ pool, me, now, ownAgents, act }: {
         )}
       </div>
       {pool.description && <p className="text-[10px] text-slate-500">{pool.description}</p>}
+      {(Object.keys(pool.platforms ?? {}).length > 0 || Object.keys(pool.agents ?? {}).length > 0) && (
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-slate-400" data-testid="pool-summary">
+          {Object.keys(pool.platforms ?? {}).length > 0 && (
+            <span title="Members per platform">{countsText(pool.platforms, platformLabel)}</span>
+          )}
+          {Object.keys(pool.agents ?? {}).length > 0 && (
+            <span title={`Online now: ${countsText(pool.agents_online) || "none"}`}>{countsText(pool.agents)}</span>
+          )}
+        </div>
+      )}
 
       {confirmDelete && (
         <div className="text-[10px] text-slate-400 bg-red-950/20 border border-red-900/60 rounded px-2 py-1.5 space-y-1.5">
@@ -177,6 +192,7 @@ function PoolCard({ pool, me, now, ownAgents, act }: {
                 <span className="truncate flex-1" title={m.name ?? m.agent_id}>
                   {m.acp_agent ? agentDisplayName(m.acp_agent) : (m.name ?? m.agent_id)}
                   {m.runner_name && <span className="text-slate-500"> on {m.runner_name}</span>}
+                  {m.platform && <span className="text-slate-600"> · {platformLabel(m.platform)}</span>}
                 </span>
                 {m.runs.length > 0 && (
                   <span title={m.runs.map((r) => r.run_id).join("\n")}

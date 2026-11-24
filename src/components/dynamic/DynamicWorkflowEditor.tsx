@@ -23,6 +23,9 @@ import type {
 } from "@/lib/types";
 import { JOB_CATEGORIES } from "@/lib/types";
 import { dsFieldCls, dsFieldMonoCls } from "../fieldStyles";
+import { RuntimeSelect } from "../RuntimeSelect";
+import { AddonsEditor } from "../AddonsEditor";
+import { isRoleAgent, mergeAddons } from "@/lib/agentUsage";
 import { BrainAccessSelect, brainAccessOf } from "../BrainAccess";
 import { VisibilityBadge, scopeConflict, useUsageScope } from "../Visibility";
 import {
@@ -97,15 +100,18 @@ function NumberField({ value, onChange, min = 0, max, disabled, className }: {
   );
 }
 
-function PoolAgentCard({ agent, entry, readonly, onToggle, onChange }: {
+function PoolAgentCard({ agent, entry, readonly, onToggle, onChange, workflowId }: {
   agent: AgentDefinition;
   entry: PoolAgent | undefined;
   readonly?: boolean;
   onToggle: () => void;
   onChange: (next: PoolAgent) => void;
+  workflowId?: string | null;
 }) {
   const selected = !!entry;
-  const badges = addonBadges(agent.addons);
+  const [showAddons, setShowAddons] = useState(false);
+  // Badges show what the agent gets in this workflow: its own addons with this use's overrides.
+  const badges = addonBadges(mergeAddons(agent.addons ?? [], entry?.addons ?? []));
   // An agent this workflow's scope can't use can still be taken out of the
   // pool (it may predate a visibility change), just not put in.
   const conflict = scopeConflict(useUsageScope(), agent);
@@ -185,6 +191,34 @@ function PoolAgentCard({ agent, entry, readonly, onToggle, onChange }: {
                   );
                 })}
                 {cats.length === 0 && <span className="text-[10px] text-slate-500 ml-1">(any)</span>}
+              </div>
+              <div className="flex items-center gap-2 w-full">
+                <span className="text-[11px] text-slate-400">Runs on</span>
+                <RuntimeSelect
+                  label={`Runtime for ${agent.name || agent.id}`}
+                  value={entry.runtime}
+                  disabled={readonly}
+                  onChange={(runtime) => onChange({ ...entry, runtime })}
+                  className={clsx(dsFieldCls, "py-1 flex-1")}
+                />
+              </div>
+              <div className="w-full">
+                <button type="button" onClick={() => setShowAddons((v) => !v)}
+                  className="text-[11px] text-sky-400 hover:underline">
+                  {showAddons ? "Hide" : "Addons for this workflow"}
+                  {entry.addons?.length ? ` (${entry.addons.length} override${entry.addons.length === 1 ? "" : "s"})` : ""}
+                </button>
+                {showAddons && (
+                  <div className="mt-2">
+                    <AddonsEditor
+                      overrides
+                      workflowId={workflowId}
+                      value={entry.addons ?? []}
+                      disabled={readonly}
+                      onChange={(addons) => onChange({ ...entry, addons: addons.length ? addons : undefined })}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -330,9 +364,34 @@ export function DynamicWorkflowEditor({ workflow, onSave, onCancel, saving, save
             <p className="text-xs text-slate-400">{automation.description}</p>
           </Section>
 
+          <Section title="Notifications" hint="Where decisions that wait for a human are sent. Slack gets the proposed jobs with Approve / Reject buttons and a link to the run.">
+            <label className="flex items-center gap-2 text-xs text-slate-300">
+              <input
+                type="checkbox"
+                aria-label="Send decisions to Slack"
+                checked={!!(cfg.slack_notifications || cfg.slack_channel)}
+                disabled={readonly}
+                onChange={(e) => patch(e.target.checked
+                  ? { slack_notifications: true }
+                  : { slack_notifications: undefined, slack_channel: undefined })}
+              />
+              Send decisions to Slack
+            </label>
+            {(cfg.slack_notifications || cfg.slack_channel) && (
+              <input
+                aria-label="Slack channel"
+                className={clsx(dsFieldMonoCls, "w-60")}
+                placeholder="channel id (empty = default approvals channel)"
+                value={cfg.slack_channel ?? ""}
+                disabled={readonly}
+                onChange={(e) => patch({ slack_notifications: true, slack_channel: e.target.value || undefined })}
+              />
+            )}
+          </Section>
+
           <Section
             title="Agent pool"
-            hint="The agents the dispatcher may put into jobs. Configure each agent's tools, datasources and MCP servers on the agent itself; they appear here as badges and are what the dispatcher matches jobs against."
+            hint="The agents the dispatcher may put into jobs. Each brings its own tools, datasources and MCP servers (badges); for this workflow you can choose where it runs and override its addons."
           >
             {agentsError && <p className="text-xs text-red-400">Could not load agents: {agentsError}</p>}
             {!agents && !agentsError && (
@@ -340,7 +399,9 @@ export function DynamicWorkflowEditor({ workflow, onSave, onCancel, saving, save
             )}
             {agents && agents.length === 0 && <p className="text-xs text-slate-500">No agents defined yet. Create agents first.</p>}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-              {(agents ?? []).map((a) => (
+              {/* Roles only: a machine's own agent is a runtime, chosen per agent under "Runs on".
+                  One already in the pool stays listed so it can be taken out. */}
+              {(agents ?? []).filter((a) => isRoleAgent(a) || poolById.has(a.id)).map((a) => (
                 <PoolAgentCard
                   key={a.id}
                   agent={a}
@@ -348,6 +409,7 @@ export function DynamicWorkflowEditor({ workflow, onSave, onCancel, saving, save
                   readonly={readonly}
                   onToggle={() => togglePool(a.id)}
                   onChange={updatePool}
+                  workflowId={workflowId}
                 />
               ))}
             </div>

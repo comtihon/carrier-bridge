@@ -8,7 +8,7 @@ import {
   type CurrentUser, type Runner, type Visibility,
 } from "@/lib/api";
 import { agentDisplayName, formatAgo, formatClock } from "@/lib/runners";
-import { PanelShell } from "./dock";
+import { PanelOrSection } from "./dock";
 import { VisibilityBadge, VisibilityControl, canEdit, useCurrentUser, useTeams } from "../Visibility";
 
 /**
@@ -29,7 +29,7 @@ import { VisibilityBadge, VisibilityControl, canEdit, useCurrentUser, useTeams }
 
 const RELOAD_MS = 15_000;
 
-export function RunnersPanel({ onClose, onConnect, onOpenAgent, onAgentAdded, reloadToken }: {
+export function RunnersPanel({ onClose, onConnect, onOpenAgent, onAgentAdded, reloadToken, embedded }: {
   onClose: () => void;
   onConnect: () => void;
   /** Open a carrier agent definition in the centre editor. */
@@ -38,6 +38,8 @@ export function RunnersPanel({ onClose, onConnect, onOpenAgent, onAgentAdded, re
   onAgentAdded?: () => void;
   /** Bumped after an approval so the new machine shows up. */
   reloadToken?: number;
+  /** Shown as a section of the Runtimes panel rather than a panel of its own. */
+  embedded?: boolean;
 }) {
   const me = useCurrentUser();
   const [runners, setRunners] = useState<Runner[]>([]);
@@ -76,8 +78,10 @@ export function RunnersPanel({ onClose, onConnect, onOpenAgent, onAgentAdded, re
   }, [load]);
 
   return (
-    <PanelShell
+    <PanelOrSection
       id="runners"
+      title="Machines"
+      embedded={embedded}
       onClose={onClose}
       actions={
         <button onClick={onConnect}
@@ -106,7 +110,7 @@ export function RunnersPanel({ onClose, onConnect, onOpenAgent, onAgentAdded, re
         ))}
         {loading && runners.length > 0 && <Loader2 className="w-3 h-3 mx-auto text-slate-600 animate-spin" />}
       </div>
-    </PanelShell>
+    </PanelOrSection>
   );
 }
 
